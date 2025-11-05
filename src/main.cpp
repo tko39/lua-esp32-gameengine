@@ -2,7 +2,8 @@
 #include <TFT_eSPI.h> // Graphics library
 #include <SPI.h>
 #include <XPT2046_Touchscreen.h> // Touch library
-#include "lua_driver.hpp"
+#include "luaDriver.hpp"
+#include "loopExample.hpp"
 
 // --- Configuration ---
 // TFT_eSPI is configured via build_flags in platformio.ini
@@ -31,35 +32,26 @@ SPIClass touchSPI(VSPI); // Use VSPI for the touch controller
 SPIClass touchSPI(HSPI); // Use HSPI for the touch controller
 #endif
 
+// LEDs are 4, 16, 17 for CYD (R, G, B)
+
 // Note: The XPT2046 shares the hardware SPI bus with the TFT.
 // Construct the touch object with CS/TIRQ only and call begin() with the SPI instance
 XPT2046_Touchscreen ts(CS_PIN, T_IRQ_PIN);
 
-// --- Game Variables ---
+// --- Game / example objects ---
 TFT_eSPI tft = TFT_eSPI();
 
-// Ball properties
-float ballX = 120.0;
-float ballY = 160.0;
-float ballRadius = 20.0;
-float velocityX = 4.0;
-float velocityY = 3.5;
-
-uint16_t ballColor = TFT_WHITE;
-uint16_t previousColor = BACKGROUND_COLOR; // Used for "erasing"
-
-// Touch mapping (adjust these constants based on calibration if needed)
-// These values are often suitable for ILI9341
 #define TS_MIN_X 240
 #define TS_MAX_X 3780
 #define TS_MIN_Y 220
 #define TS_MAX_Y 3800
 
 // --- Function Declarations ---
-void updateBallPosition();
-void drawBall(uint16_t color, uint16_t eraseColor);
-void handleTouch();
 void runDiagnostics();
+
+LoopExample loopExample(&tft, &ts);
+
+LuaDriver luaDriver;
 
 // --- Setup ---
 void setup()
@@ -76,9 +68,8 @@ void setup()
   tft.setRotation(2);
   tft.fillScreen(BACKGROUND_COLOR);
 
-  // Now that rotation is set, center the ball on the visible screen
-  ballX = tft.width() / 2.0f;
-  ballY = tft.height() / 2.0f;
+  // Initialize example
+  loopExample.begin();
 
 #ifdef USE_VSPI
   touchSPI.begin(TOUCH_SCLK, TOUCH_MISO, TOUCH_MOSI, -1);
@@ -91,7 +82,7 @@ void setup()
 
   runDiagnostics();
 
-  setup_lua();
+  luaDriver.begin();
 }
 
 void runDiagnostics()
@@ -130,108 +121,15 @@ void runDiagnostics()
                                                                                              : "UNKNOWN");
 }
 
-void loopBall()
-{
-  handleTouch();
-  drawBall(BACKGROUND_COLOR, previousColor);
-  updateBallPosition();
-  drawBall(ballColor, BACKGROUND_COLOR);
-  previousColor = ballColor;
-  delay(40);
-}
-
 // --- Loop ---
 void loop()
 {
-  // loopBall();
-  loop_lua();
+  // loopExample.loop();
+  luaDriver.loop();
 }
 
 // --- Drawing Function ---
-void drawBall(uint16_t color, uint16_t eraseColor)
-{
-  // Only redraw if the color has changed since the last draw at this location
-  // or if we are erasing (color = BACKGROUND_COLOR)
-  if (color != eraseColor)
-  {
-    // This uses the fillCircle function, which is fast in TFT_eSPI
-    tft.fillCircle((int)ballX, (int)ballY, (int)ballRadius, color);
-  }
-}
-
-// --- Physics Update Function ---
-void updateBallPosition()
-{
-  ballX += velocityX;
-  ballY += velocityY;
-
-  int minX = (int)ballRadius;
-  int maxX = tft.width() - (int)ballRadius;
-  int minY = (int)ballRadius;
-  int maxY = tft.height() - (int)ballRadius;
-
-  if (ballX < minX)
-  {
-    ballX = minX;
-    velocityX = -velocityX; // Reverse direction
-  }
-  else if (ballX > maxX)
-  {
-    ballX = maxX;
-    velocityX = -velocityX; // Reverse direction
-  }
-
-  // Check for vertical boundary collision
-  if (ballY < minY)
-  {
-    ballY = minY;
-    velocityY = -velocityY; // Reverse direction
-  }
-  else if (ballY > maxY)
-  {
-    ballY = maxY;
-    velocityY = -velocityY; // Reverse direction
-  }
-}
-
-// --- Touch Handling Function ---
-void handleTouch()
-{
-  if (ts.tirqTouched() && ts.touched())
-  {
-    TS_Point p = ts.getPoint();
-
-    int pixelX = map(p.x, TS_MIN_X, TS_MAX_X, 0, tft.width());
-    int pixelY = map(p.y, TS_MIN_Y, TS_MAX_Y, 0, tft.height());
-    float distance = sqrt(pow(pixelX - ballX, 2) + pow(pixelY - ballY, 2));
-
-    if (distance <= ballRadius * 2)
-    {
-      switch (ballColor)
-      {
-      case TFT_RED:
-        ballColor = TFT_GREEN;
-        break;
-      case TFT_GREEN:
-        ballColor = TFT_BLUE;
-        break;
-      case TFT_BLUE:
-        ballColor = TFT_YELLOW;
-        break;
-      case TFT_YELLOW:
-        ballColor = TFT_MAGENTA;
-        break;
-      case TFT_MAGENTA:
-        ballColor = TFT_CYAN;
-        break;
-      case TFT_CYAN:
-      default:
-        ballColor = TFT_RED;
-        break;
-      }
-    }
-  }
-}
+// Ball example moved to loopExample.*
 
 // region: Xterm 256 color mapping utilities
 static inline uint8_t quant6(uint8_t v)
