@@ -157,6 +157,7 @@ static char lua_code[128];
 
 void loop_lua()
 {
+    // LEDs are 4, 16, 17 for CYD (R, G, B)
     snprintf(lua_code, sizeof(lua_code), R"(
         local led_pin = 16
         print("Blink at time: " .. millis())

@@ -264,9 +264,9 @@ uint8_t mapToXterm(uint8_t r, uint8_t g, uint8_t b)
   return mapToXterm216(r, g, b);
 }
 
-static void buildXtermPallete()
+static void buildXtermPalette565(uint16_t *xterm565)
 {
-  uint16_t xterm565[256];
+  static const uint8_t lvl[6] = {0, 95, 135, 175, 215, 255};
   for (int i = 0; i < 256; ++i)
   {
     uint8_t r, g, b;
@@ -277,7 +277,6 @@ static void buildXtermPallete()
     {
       int c = i - 16;
       int R = c / 36, G = (c / 6) % 6, B = c % 6;
-      static const uint8_t lvl[6] = {0, 95, 135, 175, 215, 255};
       r = lvl[R];
       g = lvl[G];
       b = lvl[B];
@@ -290,3 +289,25 @@ static void buildXtermPallete()
     xterm565[i] = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
   }
 }
+
+/*
+void puttingItTogether()
+{
+  uint16_t xterm565[256];
+  // Setup once
+  buildXtermPalette565(xterm565);
+  for (int i = 0; i < 256; ++i)
+    spr.setPaletteColor(i, xterm565[i]);
+
+  // Every frame
+  for (int y = 0; y < 240; ++y)
+    for (int x = 0; x < 320; ++x)
+    {
+      uint8_t r, g, b = ...; // your game’s intended color
+      uint8_t idx = mapToXterm216(r, g, b);
+      spr.drawPixel(x, y, idx); // draws with palette index
+    }
+
+  spr.pushSprite(0, 0); // TFT_eSPI converts indices -> RGB565 automatically
+}
+*/
