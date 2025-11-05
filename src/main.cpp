@@ -51,9 +51,8 @@ void runDiagnostics();
 
 LoopExample loopExample(&tft, &ts);
 
-LuaDriver luaDriver;
+LuaDriver luaDriver(&tft, &ts);
 
-// --- Setup ---
 void setup()
 {
   Serial.begin(115200);
@@ -121,15 +120,11 @@ void runDiagnostics()
                                                                                              : "UNKNOWN");
 }
 
-// --- Loop ---
 void loop()
 {
   // loopExample.loop();
   luaDriver.loop();
 }
-
-// --- Drawing Function ---
-// Ball example moved to loopExample.*
 
 // region: Xterm 256 color mapping utilities
 static inline uint8_t quant6(uint8_t v)
