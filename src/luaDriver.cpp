@@ -85,9 +85,9 @@ void LuaDriver::loop()
 
             lge.draw_circle(ball.x, ball.y, ball.r, "#00aaff")
             lge.draw_text(50, 50, "Bouncing Ball", "#ffffff")
+            
             lge.present()
-
-            delay_ms(40)
+            lge.delay(40)
         end
     )");
 
@@ -188,6 +188,10 @@ void LuaDriver::registerLgeModule()
     lua_pushlightuserdata(L_, self);
     lua_pushcclosure(L_, lge_create_sprite, 1);
     lua_setfield(L_, -2, "create_sprite");
+
+    // Also allow lge.delay as an alias for delay_ms
+    lua_pushcfunction(L_, luaDelayMs);
+    lua_setfield(L_, -2, "delay");
 
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
