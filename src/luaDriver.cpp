@@ -184,6 +184,11 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_fps, 1);
     lua_setfield(L_, -2, "fps");
 
+    // get_mouse_click
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_get_mouse_click, 1);
+    lua_setfield(L_, -2, "get_mouse_click");
+
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
 }
@@ -459,6 +464,7 @@ int LuaDriver::lge_present(lua_State *L)
         totalTime = 0;
     }
 #endif
+    self->updateMouseClick();
     return 0;
 }
 
@@ -474,4 +480,48 @@ int LuaDriver::lge_create_sprite(lua_State *L)
     Serial.println("lge.create_sprite: Not Implemented");
     lua_pushnil(L);
     return 1;
+}
+
+// Update mouse click event from touch
+void LuaDriver::updateMouseClick()
+{
+    if (ts_ && tft_ && ts_->tirqTouched() && ts_->touched())
+    {
+        if (!mouse_click_.valid)
+        {
+            TS_Point p = ts_->getPoint();
+            int pixelX = map(p.x, TS_MIN_X_CONST, TS_MAX_X_CONST, 0, tft_->width());
+            int pixelY = map(p.y, TS_MIN_Y_CONST, TS_MAX_Y_CONST, 0, tft_->height());
+            mouse_click_.button = 0;
+            mouse_click_.x = pixelX;
+            mouse_click_.y = pixelY;
+            mouse_click_.valid = true;
+            Serial.printf("Touch start at (%d, %d)\n", pixelX, pixelY);
+        }
+    }
+    else
+    {
+        mouse_click_.valid = false;
+    }
+}
+
+// Lua binding: lge.get_mouse_click()
+int LuaDriver::lge_get_mouse_click(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->mouse_click_.valid)
+    {
+        lua_pushinteger(L, self->mouse_click_.button);
+        lua_pushinteger(L, self->mouse_click_.x);
+        lua_pushinteger(L, self->mouse_click_.y);
+        self->mouse_click_.valid = false; // Clear after polling
+        return 3;
+    }
+    else
+    {
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushnil(L);
+        return 3;
+    }
 }

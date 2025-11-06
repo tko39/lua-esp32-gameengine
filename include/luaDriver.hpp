@@ -10,6 +10,15 @@ struct lua_State;
 #include <vector>
 #include "dirtyRects.hpp"
 
+// Mouse click event state
+struct MouseClick
+{
+    int button; // Always 1 for touch
+    int x;
+    int y;
+    bool valid;
+};
+
 class LuaDriver
 {
 public:
@@ -28,6 +37,7 @@ private:
     TFT_eSPI *tft_;
     XPT2046_Touchscreen *ts_;
     TFT_eSprite *spr_;
+    MouseClick mouse_click_ = {0, 0, 0, false};
 
     void registerFunctions();
     void registerLgeModule();
@@ -41,11 +51,19 @@ private:
     static int lge_create_sprite(lua_State *L);
     static int lge_delay_ms(lua_State *L);
     static int lge_fps(lua_State *L);
+    static int lge_get_mouse_click(lua_State *L);
     static uint16_t parseHexColor(const char *hex);
 
     std::vector<DirtyRect> current_dirty_rects_;
     std::vector<DirtyRect> previous_dirty_rects_;
     void addDirtyRect(int x, int y, int w, int h);
+
+    void updateMouseClick();
+
+    static constexpr int TS_MIN_X_CONST = 240;
+    static constexpr int TS_MAX_X_CONST = 3780;
+    static constexpr int TS_MIN_Y_CONST = 220;
+    static constexpr int TS_MAX_Y_CONST = 3800;
 };
 
 #endif // LUA_DRIVER_HPP
