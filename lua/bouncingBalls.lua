@@ -1,27 +1,53 @@
+-- Define the number of balls to generate
+local NUM_BALLS = 4
+local BALL_MIN_R = 15
+local BALL_MAX_R = 30
+local BALL_MAX_V = 6
+
+local MAX_VEL = 10 -- maximum allowed velocity for dx/dy (from your previous update)
+local RESTORE_RATE = 0.05 -- how quickly velocity returns to original (0.0-1.0)
+
+-- Function to generate a random hex color
+local function random_color()
+    local r = math.random(255)
+    local g = math.random(255)
+    local b = math.random(255)
+    return string.format("#%02x%02x%02x", r, g, b)
+end
+
+-- Get canvas size once
+local w, h = lge.get_canvas_size()
+
 if not balls then
-    -- Ball 1 (blue)
     balls = {}
-    balls[1] = {
-        x = 60,
-        y = 60,
-        dx = 5,
-        dy = 3,
-        r = 20,
-        color = "#00aaff",
-        orig_dx = 5,
-        orig_dy = 3
-    }
-    -- Ball 2 (green)
-    balls[2] = {
-        x = 200,
-        y = 150,
-        dx = -4,
-        dy = 6,
-        r = 30,
-        color = "#00ff88",
-        orig_dx = -4,
-        orig_dy = 6
-    }
+    -- Initialize multiple balls
+    for i = 1, NUM_BALLS do
+        local r = math.random(BALL_MIN_R, BALL_MAX_R)
+        -- Ensure position is well within boundaries
+        local x = math.random(r, w - r)
+        local y = math.random(r, h - r)
+
+        -- Generate non-zero random velocities
+        local dx = math.random() * BALL_MAX_V * (math.random() > 0.5 and 1 or -1)
+        if math.abs(dx) < 1 then
+            dx = dx * 2 * (dx >= 0 and 1 or -1)
+        end
+        local dy = math.random() * BALL_MAX_V * (math.random() > 0.5 and 1 or -1)
+        if math.abs(dy) < 1 then
+            dy = dy * 2 * (dy >= 0 and 1 or -1)
+        end
+
+        balls[i] = {
+            x = x,
+            y = y,
+            dx = dx,
+            dy = dy,
+            r = r,
+            color = random_color(),
+            orig_dx = dx,
+            orig_dy = dy
+        }
+    end
 end
 
 -- Function to handle wall collisions for a single ball
@@ -101,15 +127,10 @@ local function check_ball_collision(b1, b2)
     end
 end
 
-local w, h = lge.get_canvas_size()
-
-local MAX_VEL = 10 -- maximum allowed velocity for dx/dy
-local RESTORE_RATE = 0.05 -- how quickly velocity returns to original (0.0-1.0)
-
 while true do
     lge.clear_canvas()
 
-    -- 1. Update positions
+    -- 1. Update positions & Velocity management
     for _, ball in ipairs(balls) do
         ball.x = ball.x + ball.dx
         ball.y = ball.y + ball.dy
@@ -129,7 +150,6 @@ while true do
         end
 
         -- Gradually restore velocity to original
-        -- Restore magnitude toward original, keep sign
         local sign_dx = (ball.dx >= 0) and 1 or -1
         local sign_dy = (ball.dy >= 0) and 1 or -1
         local mag_dx = math.abs(ball.dx) + (math.abs(ball.orig_dx) - math.abs(ball.dx)) * RESTORE_RATE
@@ -143,15 +163,22 @@ while true do
         check_wall_collision(ball, w, h)
     end
 
-    -- 3. Check ball-to-ball collisions
-    -- Since we only have two balls, we only check the pair (1, 2)
-    check_ball_collision(balls[1], balls[2])
+    -- 3. Check all unique ball-to-ball collisions (O(N^2) checks)
+    -- This nested loop ensures every ball is checked against every other ball exactly once.
+    for i = 1, #balls do
+        for j = i + 1, #balls do
+            check_ball_collision(balls[i], balls[j])
+        end
+    end
 
     -- 4. Draw balls
     for _, ball in ipairs(balls) do
         lge.draw_circle(ball.x, ball.y, ball.r, ball.color)
     end
 
+    local fps = math.floor(lge.fps() * 100 + 0.5) / 100
+    lge.draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
+
     lge.present()
-    lge.delay(40)
+    lge.delay(16)
 end

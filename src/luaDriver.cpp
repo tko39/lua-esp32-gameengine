@@ -15,6 +15,7 @@ extern "C"
 #endif
 
 #define DEBUG_DELAY_AVERAGE_PRINT 0
+#define DEBUG_PROFILING 1
 
 #include "luaDriver.hpp"
 #include <TFT_eSPI.h>
@@ -52,7 +53,7 @@ void LuaDriver::begin()
 
     spr_ = new TFT_eSprite(tft_);
     spr_->setColorDepth(8);
-    if (spr_->createSprite(w, h))
+    if (spr_->createSprite(w, h, 1))
     {
         Serial.println("Created sprite successfully");
     }
@@ -177,6 +178,10 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_delay_ms, 1);
     lua_setfield(L_, -2, "delay");
 
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_fps, 1);
+    lua_setfield(L_, -2, "fps");
+
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
 }
@@ -294,6 +299,28 @@ int LuaDriver::lge_delay_ms(lua_State *L)
     return 0;
 }
 
+int LuaDriver::lge_fps(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    static unsigned long lastTime = 0;
+    static int frameCount = 0;
+    static float fps = 0;
+
+    frameCount++;
+    unsigned long currentTime = millis();
+    unsigned long elapsed = currentTime - lastTime;
+
+    if (elapsed >= 1000)
+    {
+        fps = (frameCount * 1000.0f) / elapsed;
+        lastTime = currentTime;
+        frameCount = 0;
+    }
+
+    lua_pushnumber(L, fps);
+    return 1;
+}
+
 int LuaDriver::lge_get_canvas_size(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
@@ -308,6 +335,12 @@ int LuaDriver::lge_get_canvas_size(lua_State *L)
 
 int LuaDriver::lge_draw_circle(lua_State *L)
 {
+#if DEBUG_PROFILING
+    static int callCount = 0;
+    static int totalTime = 0;
+    int timer = millis();
+#endif
+
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_)
     {
@@ -318,6 +351,16 @@ int LuaDriver::lge_draw_circle(lua_State *L)
         uint16_t color = self->parseHexColor(hex);
         self->spr_->fillCircle(x, y, r, color);
     }
+
+#if DEBUG_PROFILING
+    totalTime += (millis() - timer);
+    if (++callCount % 100 == 0)
+    {
+        Serial.printf("Average time per call lge_draw_circle in ms: %g\n", (totalTime) / float(callCount));
+        callCount = 0;
+        totalTime = 0;
+    }
+#endif
     return 0;
 }
 
@@ -340,11 +383,27 @@ int LuaDriver::lge_draw_text(lua_State *L)
 
 int LuaDriver::lge_present(lua_State *L)
 {
+#if DEBUG_PROFILING
+    static int callCount = 0;
+    static int totalTime = 0;
+    int timer = millis();
+#endif
+
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_)
     {
         self->spr_->pushSprite(0, 0);
     }
+
+#if DEBUG_PROFILING
+    totalTime += (millis() - timer);
+    if (++callCount % 100 == 0)
+    {
+        Serial.printf("Average time per call lge_present in ms: %g\n", (totalTime) / float(callCount));
+        callCount = 0;
+        totalTime = 0;
+    }
+#endif
     return 0;
 }
 

@@ -47,7 +47,7 @@ TFT_eSPI tft = TFT_eSPI();
 #define TS_MAX_Y 3800
 
 // --- Function Declarations ---
-void runDiagnostics();
+void runDiagnostics(const char *message);
 
 LoopExample loopExample(&tft, &ts);
 
@@ -66,6 +66,7 @@ void setup()
 
   tft.setRotation(2);
   tft.fillScreen(BACKGROUND_COLOR);
+  tft.initDMA();
 
   // Initialize example
   loopExample.begin();
@@ -79,13 +80,22 @@ void setup()
 
   ts.setRotation(1);
 
-  runDiagnostics();
+  runDiagnostics("Initial setup complete");
 
   luaDriver.begin();
+
+  runDiagnostics("Lua driver initialized");
 }
 
-void runDiagnostics()
+void runDiagnostics(const char *message = nullptr)
 {
+  if (message)
+  {
+    Serial.println("================================");
+    Serial.println(message);
+    Serial.println("================================");
+  }
+
 #if defined(TFT_BL)
   Serial.printf("TFT_BL pin=%d state=%d\n", TFT_BL, digitalRead(TFT_BL));
 #endif

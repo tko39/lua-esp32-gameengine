@@ -38,6 +38,7 @@ private:
     static int lge_load_spritesheet(lua_State *L);
     static int lge_create_sprite(lua_State *L);
     static int lge_delay_ms(lua_State *L);
+    static int lge_fps(lua_State *L);
     static uint16_t parseHexColor(const char *hex);
 };
 
