@@ -1,8 +1,3 @@
-// Auto-generated header file from ./touchExample.lua
-#ifndef LUASCRIPT_H
-#define LUASCRIPT_H
-
-const char lua_script[] = R"(
 -- touchExample.lua: Demo for touch click and growing ball
 -- Requires lge.get_mouse_click()
 local balls = {}
@@ -38,6 +33,3 @@ while true do
     loop()
     lge.delay(33)
 end
-)";
-
-#endif // LUASCRIPT_H

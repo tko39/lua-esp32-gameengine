@@ -487,7 +487,7 @@ void LuaDriver::updateMouseClick()
 {
     if (ts_ && tft_ && ts_->tirqTouched() && ts_->touched())
     {
-        if (!mouse_click_.valid)
+        if (!mouse_click_.isTouchDown)
         {
             TS_Point p = ts_->getPoint();
             int pixelX = map(p.x, TS_MIN_X_CONST, TS_MAX_X_CONST, 0, tft_->width());
@@ -495,13 +495,14 @@ void LuaDriver::updateMouseClick()
             mouse_click_.button = 0;
             mouse_click_.x = pixelX;
             mouse_click_.y = pixelY;
-            mouse_click_.valid = true;
+            mouse_click_.isTouchDown = true;
             Serial.printf("Touch start at (%d, %d)\n", pixelX, pixelY);
         }
     }
     else
     {
-        mouse_click_.valid = false;
+        mouse_click_.isTouchDown = false;
+        mouse_click_.isConsumed = false;
     }
 }
 
@@ -509,12 +510,12 @@ void LuaDriver::updateMouseClick()
 int LuaDriver::lge_get_mouse_click(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
-    if (self && self->mouse_click_.valid)
+    if (self && self->mouse_click_.isTouchDown && !self->mouse_click_.isConsumed)
     {
         lua_pushinteger(L, self->mouse_click_.button);
         lua_pushinteger(L, self->mouse_click_.x);
         lua_pushinteger(L, self->mouse_click_.y);
-        self->mouse_click_.valid = false; // Clear after polling
+        self->mouse_click_.isConsumed = true;
         return 3;
     }
     else

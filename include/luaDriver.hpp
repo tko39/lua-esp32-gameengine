@@ -16,7 +16,8 @@ struct MouseClick
     int button; // Always 1 for touch
     int x;
     int y;
-    bool valid;
+    bool isTouchDown;
+    bool isConsumed;
 };
 
 class LuaDriver
@@ -37,7 +38,7 @@ private:
     TFT_eSPI *tft_;
     XPT2046_Touchscreen *ts_;
     TFT_eSprite *spr_;
-    MouseClick mouse_click_ = {0, 0, 0, false};
+    MouseClick mouse_click_ = {0, 0, 0, false, false};
 
     void registerFunctions();
     void registerLgeModule();
