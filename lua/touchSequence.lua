@@ -1,8 +1,3 @@
-// Auto-generated header file from ./touchSequence.lua
-#ifndef LUASCRIPT_H
-#define LUASCRIPT_H
-
-const char lua_script[] = R"(
 -- touchSequence.lua: Circle Memory Challenge Game
 -- Player must touch circles in the order they appear. Each round adds a new circle.
 local circles = {}
@@ -135,6 +130,3 @@ while true do
     lge.present()
     lge.delay(33)
 end
-)";
-
-#endif // LUASCRIPT_H
