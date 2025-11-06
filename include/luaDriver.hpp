@@ -7,6 +7,8 @@ struct lua_State;
 
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <vector>
+#include "dirtyRects.hpp"
 
 class LuaDriver
 {
@@ -40,6 +42,10 @@ private:
     static int lge_delay_ms(lua_State *L);
     static int lge_fps(lua_State *L);
     static uint16_t parseHexColor(const char *hex);
+
+    std::vector<DirtyRect> current_dirty_rects_;
+    std::vector<DirtyRect> previous_dirty_rects_;
+    void addDirtyRect(int x, int y, int w, int h);
 };
 
 #endif // LUA_DRIVER_HPP

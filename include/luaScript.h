@@ -185,7 +185,7 @@ while true do
     lge.draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
 
     lge.present()
-    lge.delay(16)
+    lge.delay(1)
 end
 )";
 

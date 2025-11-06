@@ -16,11 +16,13 @@ extern "C"
 
 #define DEBUG_DELAY_AVERAGE_PRINT 0
 #define DEBUG_PROFILING 1
+#define DIRTY_RECTS_OPTIMIZATION 1
 
 #include "luaDriver.hpp"
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <cstdio>
+#include <algorithm>
 
 #include "luaScript.h"
 
@@ -242,6 +244,28 @@ static int luaGetSystemInfo(lua_State *L)
 }
 
 // --- LGE helper functions ---
+
+// NEW: Implementation of the Dirty Rect Adder
+void LuaDriver::addDirtyRect(int x, int y, int w, int h)
+{
+#if DIRTY_RECTS_OPTIMIZATION
+    // 1. Basic validation and clipping
+    if (w <= 0 || h <= 0 || !tft_)
+        return;
+
+    int x1_new = std::max(0, x);
+    int y1_new = std::max(0, y);
+    int x2_new = std::min(tft_->width() - 1, x + w - 1);
+    int y2_new = std::min(tft_->height() - 1, y + h - 1);
+
+    if (x1_new > x2_new || y1_new > y2_new)
+        return;
+
+    DirtyRect new_rect = {x1_new, y1_new, x2_new, y2_new};
+    current_dirty_rects_.push_back(new_rect);
+#endif
+}
+
 uint16_t LuaDriver::parseHexColor(const char *hex)
 {
     if (!hex)
@@ -265,7 +289,13 @@ int LuaDriver::lge_clear_canvas(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_)
+    {
         self->spr_->fillScreen(TFT_BLACK);
+
+        // When clearing the whole screen, the whole screen is dirty!
+        // This makes the next lge_present perform a full copy.
+        // self->addDirtyRect(0, 0, self->spr_->width(), self->spr_->height());
+    }
     return 0;
 }
 
@@ -335,12 +365,6 @@ int LuaDriver::lge_get_canvas_size(lua_State *L)
 
 int LuaDriver::lge_draw_circle(lua_State *L)
 {
-#if DEBUG_PROFILING
-    static int callCount = 0;
-    static int totalTime = 0;
-    int timer = millis();
-#endif
-
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_)
     {
@@ -350,17 +374,9 @@ int LuaDriver::lge_draw_circle(lua_State *L)
         const char *hex = luaL_optstring(L, 4, "#ffffff");
         uint16_t color = self->parseHexColor(hex);
         self->spr_->fillCircle(x, y, r, color);
+        self->addDirtyRect(x - r, y - r, 2 * r + 1, 2 * r + 1);
     }
 
-#if DEBUG_PROFILING
-    totalTime += (millis() - timer);
-    if (++callCount % 100 == 0)
-    {
-        Serial.printf("Average time per call lge_draw_circle in ms: %g\n", (totalTime) / float(callCount));
-        callCount = 0;
-        totalTime = 0;
-    }
-#endif
     return 0;
 }
 
@@ -374,9 +390,19 @@ int LuaDriver::lge_draw_text(lua_State *L)
         const char *text = luaL_checkstring(L, 3);
         const char *hex = luaL_optstring(L, 4, "#ffffff");
         uint16_t color = parseHexColor(hex);
+
         self->spr_->setTextFont(2);
         self->spr_->setTextColor(color);
+
+        // Get the bounding box BEFORE drawing
+        int text_w = self->spr_->textWidth(text);
+        int text_h = self->spr_->fontHeight();
+
+        // 1. Draw to the internal sprite buffer
         self->spr_->drawString(text, x, y);
+
+        // 2. MARK THE REGION AS DIRTY
+        self->addDirtyRect(x, y, text_w, text_h);
     }
     return 0;
 }
@@ -389,16 +415,45 @@ int LuaDriver::lge_present(lua_State *L)
     int timer = millis();
 #endif
 
+#if DIRTY_RECTS_OPTIMIZATION
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_)
     {
+        // 1. Combine ALL dirty rects (erase and draw) into one list
+        std::vector<DirtyRect> combined_rects;
+        combined_rects.reserve(self->current_dirty_rects_.size() + self->previous_dirty_rects_.size());
+        combined_rects.insert(combined_rects.end(), self->current_dirty_rects_.begin(), self->current_dirty_rects_.end());
+        combined_rects.insert(combined_rects.end(), self->previous_dirty_rects_.begin(), self->previous_dirty_rects_.end());
+
+        // 2. Perform the merging optimization
+        mergeDirtyRects(combined_rects);
+
+        // 3. Push the final, minimal set of merged rectangles
+        for (const auto &rect : combined_rects)
+        {
+            int w = rect.x2 - rect.x1 + 1;
+            int h = rect.y2 - rect.y1 + 1;
+            self->spr_->pushSprite(rect.x1, rect.y1, rect.x1, rect.y1, w, h);
+        }
+
+        self->previous_dirty_rects_.clear();
+        self->previous_dirty_rects_.swap(self->current_dirty_rects_);
+    }
+#else
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->spr_ && self->tft_)
+    {
+        // Full sprite to TFT copy
         self->spr_->pushSprite(0, 0);
     }
+#endif
 
 #if DEBUG_PROFILING
-    totalTime += (millis() - timer);
+    int time_taken = millis() - timer;
+    totalTime += time_taken;
     if (++callCount % 100 == 0)
     {
+        // Report average time for the optimized (partial) copy
         Serial.printf("Average time per call lge_present in ms: %g\n", (totalTime) / float(callCount));
         callCount = 0;
         totalTime = 0;
