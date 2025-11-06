@@ -14,10 +14,14 @@ extern "C"
 #include "lualib.h"
 #endif
 
+#define DEBUG_DELAY_AVERAGE_PRINT 0
+
 #include "luaDriver.hpp"
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <cstdio>
+
+#include "luaScript.h"
 
 // C-style Lua hooks (need C linkage compatible signatures)
 static int luaLedControl(lua_State *L);
@@ -27,19 +31,9 @@ static int luaMillis(lua_State *L);
 static int luaPrint(lua_State *L);
 static int luaGetSystemInfo(lua_State *L);
 
-// lge helper and bindings
-// static int lge_clear_canvas(lua_State *L);
-// static int lge_get_canvas_size(lua_State *L);
-// static int lge_draw_circle(lua_State *L);
-// static int lge_draw_text(lua_State *L);
-// static int lge_present(lua_State *L);
-// static int lge_load_spritesheet(lua_State *L);
-// static int lge_create_sprite(lua_State *L);
-
 // Implement LuaDriver methods
-
 LuaDriver::LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts)
-    : L_(nullptr), led_status_(0), tft_(tft), ts_(ts)
+    : L_(nullptr), led_status_(0), tft_(tft), ts_(ts), spr_(nullptr)
 {
 }
 
@@ -51,6 +45,22 @@ LuaDriver::~LuaDriver()
 
 void LuaDriver::begin()
 {
+    // Create sprite with display dimensions and 8-bit color depth
+    int w = tft_ ? tft_->width() : 320;
+    int h = tft_ ? tft_->height() : 240;
+    uint16_t xterm565[256];
+
+    spr_ = new TFT_eSprite(tft_);
+    spr_->setColorDepth(8);
+    if (spr_->createSprite(w, h))
+    {
+        Serial.println("Created sprite successfully");
+    }
+    else
+    {
+        Serial.println("Failed to create sprite");
+    }
+
     Serial.println("ESP32 Lua Interpreter Starting...");
     L_ = luaL_newstate();
     if (!L_)
@@ -64,34 +74,7 @@ void LuaDriver::begin()
 
 void LuaDriver::loop()
 {
-    snprintf(lua_code_, sizeof(lua_code_), R"(
-        if not ball then
-            ball = { x = 60, y = 60, dx = 3, dy = 2, r = 20 }
-        end
-        local w, h = lge.get_canvas_size()
-
-        while true do
-            lge.clear_canvas()
-
-            ball.x = ball.x + ball.dx
-            ball.y = ball.y + ball.dy
-
-            if (ball.x - ball.r < 0 and ball.dx < 0) or (ball.x + ball.r > w and ball.dx > 0) then
-                ball.dx = -ball.dx
-            end
-            if (ball.y - ball.r < 0 and ball.dy < 0) or (ball.y + ball.r > h and ball.dy > 0) then
-                ball.dy = -ball.dy
-            end
-
-            lge.draw_circle(ball.x, ball.y, ball.r, "#00aaff")
-            lge.draw_text(50, 50, "Bouncing Ball", "#ffffff")
-            
-            lge.present()
-            lge.delay(40)
-        end
-    )");
-
-    const int result = luaL_dostring(L_, lua_code_);
+    const int result = luaL_dostring(L_, lua_script);
     if (result != LUA_OK)
     {
         Serial.print("Error in periodic script: ");
@@ -99,6 +82,7 @@ void LuaDriver::loop()
         lua_pop(L_, 1);
     }
 
+    Serial.printf("luaScript - finished\n");
     delay(1000);
 }
 
@@ -189,8 +173,8 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_create_sprite, 1);
     lua_setfield(L_, -2, "create_sprite");
 
-    // Also allow lge.delay as an alias for delay_ms
-    lua_pushcfunction(L_, luaDelayMs);
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_delay_ms, 1);
     lua_setfield(L_, -2, "delay");
 
     // Set the table in the global namespace as `lge`
@@ -268,14 +252,45 @@ uint16_t LuaDriver::parseHexColor(const char *hex)
             bb = (int)vb;
         }
     }
+
     return ((rr & 0xF8) << 8) | ((gg & 0xFC) << 3) | (bb >> 3);
 }
 
 int LuaDriver::lge_clear_canvas(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
-    if (self && self->tft_)
-        self->tft_->fillScreen(TFT_BLACK);
+    if (self && self->spr_)
+        self->spr_->fillScreen(TFT_BLACK);
+    return 0;
+}
+
+int LuaDriver::lge_delay_ms(lua_State *L)
+{
+    static int lastDelayTimestamp = 0;
+
+    const int ms = static_cast<int>(luaL_checkinteger(L, 1));
+    int currentMillis = millis();
+    int timeSinceLastDelay = currentMillis - lastDelayTimestamp;
+    int actualDelay = 0;
+    if (timeSinceLastDelay < ms)
+    {
+        actualDelay = ms - timeSinceLastDelay;
+    }
+    delay(actualDelay);
+
+#if DEBUG_DELAY_AVERAGE_PRINT
+    static int totalDelay = 0;
+    static int count = 0;
+    totalDelay += actualDelay;
+    if (++count >= 100)
+    {
+        Serial.printf("Average lge.delay() time over last %d calls: %.2f ms\n", count, (float)totalDelay / count);
+        totalDelay = 0;
+        count = 0;
+    }
+#endif
+
+    lastDelayTimestamp = currentMillis;
     return 0;
 }
 
@@ -294,14 +309,14 @@ int LuaDriver::lge_get_canvas_size(lua_State *L)
 int LuaDriver::lge_draw_circle(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
-    if (self && self->tft_)
+    if (self && self->spr_)
     {
         int x = (int)luaL_checkinteger(L, 1);
         int y = (int)luaL_checkinteger(L, 2);
         int r = (int)luaL_checkinteger(L, 3);
         const char *hex = luaL_optstring(L, 4, "#ffffff");
-        uint16_t color = parseHexColor(hex);
-        self->tft_->fillCircle(x, y, r, color);
+        uint16_t color = self->parseHexColor(hex);
+        self->spr_->fillCircle(x, y, r, color);
     }
     return 0;
 }
@@ -309,23 +324,27 @@ int LuaDriver::lge_draw_circle(lua_State *L)
 int LuaDriver::lge_draw_text(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
-    if (self && self->tft_)
+    if (self && self->spr_)
     {
         int x = (int)luaL_checkinteger(L, 1);
         int y = (int)luaL_checkinteger(L, 2);
         const char *text = luaL_checkstring(L, 3);
         const char *hex = luaL_optstring(L, 4, "#ffffff");
         uint16_t color = parseHexColor(hex);
-        self->tft_->setTextFont(2);
-        self->tft_->setTextColor(color);
-        self->tft_->drawString(text, x, y);
+        self->spr_->setTextFont(2);
+        self->spr_->setTextColor(color);
+        self->spr_->drawString(text, x, y);
     }
     return 0;
 }
 
 int LuaDriver::lge_present(lua_State *L)
 {
-    (void)L;
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->spr_)
+    {
+        self->spr_->pushSprite(0, 0);
+    }
     return 0;
 }
 

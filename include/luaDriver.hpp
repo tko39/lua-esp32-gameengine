@@ -11,33 +11,25 @@ struct lua_State;
 class LuaDriver
 {
 public:
-    // Lifecycle
     LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts);
     ~LuaDriver();
 
-    // Initialize Lua runtime and run startup scripts
     void begin();
-
-    // Called periodically from Arduino loop
     void loop();
-
-    // Access underlying lua_State* if needed
     lua_State *state();
-
-    // Example: call a Lua callback from C++
     void callLuaFunctionFromCpp();
 
 private:
-    // Internal implementation details
     lua_State *L_;
     int led_status_;
     char lua_code_[2048];
-
     TFT_eSPI *tft_;
     XPT2046_Touchscreen *ts_;
+    TFT_eSprite *spr_;
 
     void registerFunctions();
     void registerLgeModule();
+
     static int lge_clear_canvas(lua_State *L);
     static int lge_get_canvas_size(lua_State *L);
     static int lge_draw_circle(lua_State *L);
@@ -45,6 +37,7 @@ private:
     static int lge_present(lua_State *L);
     static int lge_load_spritesheet(lua_State *L);
     static int lge_create_sprite(lua_State *L);
+    static int lge_delay_ms(lua_State *L);
     static uint16_t parseHexColor(const char *hex);
 };
 
