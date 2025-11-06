@@ -1,8 +1,3 @@
-// Auto-generated header file from ./bouncingBalls.lua
-#ifndef LUASCRIPT_H
-#define LUASCRIPT_H
-
-const char lua_script[] = R"(
 if not balls then
     -- Ball 1 (blue)
     balls = {}
@@ -160,6 +155,3 @@ while true do
     lge.present()
     lge.delay(40)
 end
-)";
-
-#endif // LUASCRIPT_H

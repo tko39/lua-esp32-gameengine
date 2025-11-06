@@ -311,9 +311,9 @@ int LuaDriver::lge_draw_circle(lua_State *L)
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_)
     {
-        int x = (int)luaL_checkinteger(L, 1);
-        int y = (int)luaL_checkinteger(L, 2);
-        int r = (int)luaL_checkinteger(L, 3);
+        int x = (int)lua_tonumber(L, 1);
+        int y = (int)lua_tonumber(L, 2);
+        int r = (int)lua_tonumber(L, 3);
         const char *hex = luaL_optstring(L, 4, "#ffffff");
         uint16_t color = self->parseHexColor(hex);
         self->spr_->fillCircle(x, y, r, color);
