@@ -5,7 +5,7 @@ local growth_rate = 4
 local max_radius = 60
 
 function loop()
-    local button, x, y = lge.get_mouse_click()
+    local button, x, y = lge.get_mouse_position()
     if x then
         table.insert(balls, {
             x = x,

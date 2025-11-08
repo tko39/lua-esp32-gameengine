@@ -17,6 +17,7 @@ extern "C"
 #define DEBUG_DELAY_AVERAGE_PRINT 0
 #define DEBUG_PROFILING 1
 #define DIRTY_RECTS_OPTIMIZATION 1
+#define DEBUG_SHOW_AVAILABLE_COLORS 1
 
 #include "luaDriver.hpp"
 #include <TFT_eSPI.h>
@@ -73,6 +74,19 @@ void LuaDriver::begin()
     }
     luaL_openlibs(L_);
     registerFunctions();
+
+#if DEBUG_SHOW_AVAILABLE_COLORS
+    Serial.println("Available colors:");
+    Serial.println("{");
+    for (int i = 0; i < 256; i++)
+    {
+        int color16 = tft_->color8to16(i);
+        int color24 = tft_->color16to24(color16);
+
+        Serial.printf("%d: { 16: \"%04X\", 24: \"#%06X\" }%c\n", i, color16, color24, (i < 255) ? ',' : ' ');
+    }
+    Serial.println("}");
+#endif
 }
 
 void LuaDriver::loop()
@@ -184,10 +198,14 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_fps, 1);
     lua_setfield(L_, -2, "fps");
 
-    // get_mouse_click
+    // touch management
     lua_pushlightuserdata(L_, self);
     lua_pushcclosure(L_, lge_get_mouse_click, 1);
     lua_setfield(L_, -2, "get_mouse_click");
+
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_get_mouse_position, 1);
+    lua_setfield(L_, -2, "get_mouse_position");
 
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
@@ -487,17 +505,13 @@ void LuaDriver::updateMouseClick()
 {
     if (ts_ && tft_ && ts_->tirqTouched() && ts_->touched())
     {
-        if (!mouse_click_.isTouchDown)
-        {
-            TS_Point p = ts_->getPoint();
-            int pixelX = map(p.x, TS_MIN_X_CONST, TS_MAX_X_CONST, 0, tft_->width());
-            int pixelY = map(p.y, TS_MIN_Y_CONST, TS_MAX_Y_CONST, 0, tft_->height());
-            mouse_click_.button = 0;
-            mouse_click_.x = pixelX;
-            mouse_click_.y = pixelY;
-            mouse_click_.isTouchDown = true;
-            Serial.printf("Touch start at (%d, %d)\n", pixelX, pixelY);
-        }
+        TS_Point p = ts_->getPoint();
+        int pixelX = map(p.x, TS_MIN_X_CONST, TS_MAX_X_CONST, 0, tft_->width());
+        int pixelY = map(p.y, TS_MIN_Y_CONST, TS_MAX_Y_CONST, 0, tft_->height());
+        mouse_click_.button = 0;
+        mouse_click_.x = pixelX;
+        mouse_click_.y = pixelY;
+        mouse_click_.isTouchDown = true;
     }
     else
     {
@@ -516,6 +530,26 @@ int LuaDriver::lge_get_mouse_click(lua_State *L)
         lua_pushinteger(L, self->mouse_click_.x);
         lua_pushinteger(L, self->mouse_click_.y);
         self->mouse_click_.isConsumed = true;
+        return 3;
+    }
+    else
+    {
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushnil(L);
+        return 3;
+    }
+}
+
+// Lua binding: lge.get_mouse_click()
+int LuaDriver::lge_get_mouse_position(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->mouse_click_.isTouchDown)
+    {
+        lua_pushinteger(L, self->mouse_click_.button);
+        lua_pushinteger(L, self->mouse_click_.x);
+        lua_pushinteger(L, self->mouse_click_.y);
         return 3;
     }
     else

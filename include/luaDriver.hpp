@@ -53,6 +53,7 @@ private:
     static int lge_delay_ms(lua_State *L);
     static int lge_fps(lua_State *L);
     static int lge_get_mouse_click(lua_State *L);
+    static int lge_get_mouse_position(lua_State *L);
     static uint16_t parseHexColor(const char *hex);
 
     std::vector<DirtyRect> current_dirty_rects_;
