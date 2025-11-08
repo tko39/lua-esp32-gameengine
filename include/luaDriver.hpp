@@ -52,6 +52,8 @@ private:
     static int lge_clear_canvas(lua_State *L);
     static int lge_get_canvas_size(lua_State *L);
     static int lge_draw_circle(lua_State *L);
+    static int lge_draw_rectangle(lua_State *L);
+    static int lge_draw_triangle(lua_State *L);
     static int lge_draw_text(lua_State *L);
     static int lge_present(lua_State *L);
     static int lge_load_spritesheet(lua_State *L);

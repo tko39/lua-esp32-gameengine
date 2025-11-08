@@ -228,6 +228,16 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_draw_circle, 1);
     lua_setfield(L_, -2, "draw_circle");
 
+    // draw_rectangle
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_draw_rectangle, 1);
+    lua_setfield(L_, -2, "draw_rectangle");
+
+    // draw_triangle
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_draw_triangle, 1);
+    lua_setfield(L_, -2, "draw_triangle");
+
     // draw_text
     lua_pushlightuserdata(L_, self);
     lua_pushcclosure(L_, lge_draw_text, 1);
@@ -456,6 +466,50 @@ int LuaDriver::lge_draw_circle(lua_State *L)
         uint16_t color = self->parseHexColor(hex);
         self->spr_->fillCircle(x, y, r, color);
         self->addDirtyRect(x - r, y - r, 2 * r + 1, 2 * r + 1);
+    }
+
+    return 0;
+}
+
+int LuaDriver::lge_draw_rectangle(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->spr_)
+    {
+        int x = (int)lua_tonumber(L, 1);
+        int y = (int)lua_tonumber(L, 2);
+        int w = (int)lua_tonumber(L, 3);
+        int h = (int)lua_tonumber(L, 4);
+        const char *hex = luaL_optstring(L, 5, "#ffffff");
+        uint16_t color = self->parseHexColor(hex);
+        self->spr_->fillRect(x, y, w, h, color);
+        self->addDirtyRect(x, y, w, h);
+    }
+
+    return 0;
+}
+
+int LuaDriver::lge_draw_triangle(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->spr_)
+    {
+        int x0 = (int)lua_tonumber(L, 1);
+        int y0 = (int)lua_tonumber(L, 2);
+        int x1 = (int)lua_tonumber(L, 3);
+        int y1 = (int)lua_tonumber(L, 4);
+        int x2 = (int)lua_tonumber(L, 5);
+        int y2 = (int)lua_tonumber(L, 6);
+        const char *hex = luaL_optstring(L, 7, "#ffffff");
+        uint16_t color = self->parseHexColor(hex);
+        self->spr_->fillTriangle(x0, y0, x1, y1, x2, y2, color);
+
+        // Compute bounding box for dirty rect
+        int min_x = std::min({x0, x1, x2});
+        int max_x = std::max({x0, x1, x2});
+        int min_y = std::min({y0, y1, y2});
+        int max_y = std::max({y0, y1, y2});
+        self->addDirtyRect(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1);
     }
 
     return 0;

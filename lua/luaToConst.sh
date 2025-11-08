@@ -19,7 +19,7 @@ if [ "$mode" == "header" ]; then
     echo "#define LUASCRIPT_H" >> "$output_file"
     echo "" >> "$output_file"
     echo "const char lua_script[] = R\"(" >> "$output_file"
-    cat "$input_file" >> "$output_file"
+    cat "$input_file" | sed -e "s/    /  /g" -e "s/--.*$//g" | grep -v "^\s*$" >> "$output_file"
     echo ")\";" >> "$output_file"
     echo "" >> "$output_file"
     echo "#endif // LUASCRIPT_H" >> "$output_file"
