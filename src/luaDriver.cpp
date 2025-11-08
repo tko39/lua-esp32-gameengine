@@ -22,7 +22,7 @@ extern "C"
 
 #include "luaScript.h"
 #include <memory>
-#include <LittleFS.h>
+#include <SPIFFS.h>
 #include "flags.h"
 
 // C-style Lua hooks (need C linkage compatible signatures)
@@ -52,7 +52,6 @@ void LuaDriver::begin()
     // Create sprite with display dimensions and 8-bit color depth
     int w = tft_ ? tft_->width() : 320;
     int h = tft_ ? tft_->height() : 240;
-    uint16_t xterm565[256];
 
     spr_ = new TFT_eSprite(tft_);
     spr_->setColorDepth(8);
@@ -90,11 +89,14 @@ void LuaDriver::begin()
     }
     Serial.println("}");
 #endif
+}
 
+void LuaDriver::loadLuaFromFS()
+{
 #if LUA_FROM_FILE
     if (!this->cached_lua_fs_buf && !this->cached_lua_fs_sz)
     {
-        File f = LittleFS.open(RUNTIME_LUA_FILE, "r");
+        File f = SPIFFS.open(RUNTIME_LUA_FILE, "r");
         if (!f)
         {
             Serial.printf("cannot open %s\n", RUNTIME_LUA_FILE);
@@ -124,7 +126,7 @@ void LuaDriver::begin()
 #endif
 }
 
-int LuaDriver::runLuaFromLittleFS()
+int LuaDriver::runLuaFromFS()
 {
     // mode=nullptr allows both text and bytecode
     int st = luaL_loadbufferx(L_, cached_lua_fs_buf, cached_lua_fs_sz, RUNTIME_LUA_FILE, nullptr);
@@ -132,6 +134,11 @@ int LuaDriver::runLuaFromLittleFS()
     {
         return st;
     }
+
+    free(cached_lua_fs_buf);
+    cached_lua_fs_buf = nullptr;
+    cached_lua_fs_sz = 0;
+
     st = lua_pcall(L_, 0, LUA_MULTRET, 0);
     return st;
 }
@@ -139,7 +146,7 @@ int LuaDriver::runLuaFromLittleFS()
 void LuaDriver::loop()
 {
 #if LUA_FROM_FILE
-    const int result = runLuaFromLittleFS();
+    const int result = runLuaFromFS();
 #else
     const int result = luaL_dostring(L_, lua_script);
 #endif
@@ -489,8 +496,9 @@ int LuaDriver::lge_present(lua_State *L)
     int timer = millis();
 #endif
 
-#if DIRTY_RECTS_OPTIMIZATION
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    self->tft_->startWrite();
+#if DIRTY_RECTS_OPTIMIZATION
     if (self && self->spr_)
     {
         // 1. Combine ALL dirty rects (erase and draw) into one list
@@ -514,13 +522,13 @@ int LuaDriver::lge_present(lua_State *L)
         self->previous_dirty_rects_.swap(self->current_dirty_rects_);
     }
 #else
-    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
     if (self && self->spr_ && self->tft_)
     {
         // Full sprite to TFT copy
         self->spr_->pushSprite(0, 0);
     }
 #endif
+    self->tft_->endWrite();
 
 #if DEBUG_PROFILING
     int time_taken = millis() - timer;

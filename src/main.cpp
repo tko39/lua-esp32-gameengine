@@ -2,7 +2,7 @@
 #include <TFT_eSPI.h> // Graphics library
 #include <SPI.h>
 #include <XPT2046_Touchscreen.h> // Touch library
-#include <LittleFS.h>
+#include <SPIFFS.h>
 #include "luaDriver.hpp"
 #include "flags.h"
 
@@ -66,23 +66,25 @@ void setup()
 
   ts.setRotation(1);
 
+  luaDriver.begin();
+
 #if LUA_FROM_FILE
-  if (!LittleFS.begin(true))
+  if (!SPIFFS.begin(false))
   {
-    Serial.println("LittleFS mount failed");
+    Serial.println("FS mount failed");
   }
   else
   {
-    Serial.println("LittleFS mounted successfully");
+    Serial.println("FS mounted successfully");
   }
-#endif
 
-  luaDriver.begin();
+  luaDriver.loadLuaFromFS();
+#endif
 
   runDiagnostics("Lua driver initialized");
 
 #if LUA_FROM_FILE
-  LittleFS.end();
+  SPIFFS.end();
 #endif
 }
 
@@ -129,13 +131,13 @@ void runDiagnostics(const char *message = nullptr)
                                                                                              : "UNKNOWN");
 
 #if LUA_FROM_FILE
-  // LittleFS diagnostics
-  size_t total = LittleFS.totalBytes();
-  size_t used = LittleFS.usedBytes();
-  Serial.printf("LittleFS: %u used / %u total (%.1f%%)\n",
+  // FS diagnostics
+  size_t total = SPIFFS.totalBytes();
+  size_t used = SPIFFS.usedBytes();
+  Serial.printf("FS: %u used / %u total (%.1f%%)\n",
                 used, total, 100.0 * used / total);
 
-  File root = LittleFS.open("/");
+  File root = SPIFFS.open("/");
   File file = root.openNextFile();
   while (file)
   {

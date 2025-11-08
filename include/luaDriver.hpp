@@ -28,6 +28,7 @@ public:
     ~LuaDriver();
 
     void begin();
+    void loadLuaFromFS();
     void loop();
     lua_State *state();
     void callLuaFunctionFromCpp();
@@ -46,7 +47,7 @@ private:
 
     void registerFunctions();
     void registerLgeModule();
-    int runLuaFromLittleFS();
+    int runLuaFromFS();
 
     static int lge_clear_canvas(lua_State *L);
     static int lge_get_canvas_size(lua_State *L);
