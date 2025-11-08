@@ -1,0 +1,13 @@
+#pragma once
+#ifndef FLAGS_H
+#define FLAGS_H
+
+#define DEBUG_DELAY_AVERAGE_PRINT 0
+#define DEBUG_SHOW_AVAILABLE_COLORS 0
+#define DEBUG_PROFILING 1
+#define DIRTY_RECTS_OPTIMIZATION 1
+#define LUA_FROM_FILE 1
+
+#define USE_VSPI
+
+#endif // FLAGS_H

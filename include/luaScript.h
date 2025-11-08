@@ -1,139 +1,191 @@
-// Auto-generated header file from ./touchSequence.lua
+// Auto-generated header file from bouncingBalls.lua
 #ifndef LUASCRIPT_H
 #define LUASCRIPT_H
 
 const char lua_script[] = R"(
--- touchSequence.lua: Circle Memory Challenge Game
--- Player must touch circles in the order they appear. Each round adds a new circle.
-local circles = {}
-local sequence = {}
-local current_step = 1
-local round = 1
-local showing_sequence = true
-local show_timer = 0
-local show_delay = 30 -- frames per highlight
-local canvas_w, canvas_h = lge.get_canvas_size()
-local score = 0
-local game_over = false
-local colors = {'#ff0000', '#00ff00', '#4444ff', '#ffff00', '#ff00ff', '#00ffff'}
+-- Define the number of balls to generate
+local NUM_BALLS = 4
+local BALL_MIN_R = 15
+local BALL_MAX_R = 30
+local BALL_MAX_V = 6
 
-function circles_overlap(x1, y1, r1, x2, y2, r2)
-    local dx = x1 - x2
-    local dy = y1 - y2
-    local dist = math.sqrt(dx * dx + dy * dy)
-    return dist < (r1 + r2 + 8) -- 8px buffer
+local MAX_VEL = 10 -- maximum allowed velocity for dx/dy (from your previous update)
+local RESTORE_RATE = 0.05 -- how quickly velocity returns to original (0.0-1.0)
+
+-- Function to generate a random hex color
+local function random_color()
+    local r = math.random(255)
+    local g = math.random(255)
+    local b = math.random(255)
+    return string.format("#%02x%02x%02x", r, g, b)
 end
 
-function random_circle(existing)
-    local margin = 30
-    local tries = 0
-    while true do
-        local x = math.random(margin, canvas_w - margin)
-        local y = math.random(margin, canvas_h - margin)
-        local r = 24
-        local color = colors[math.random(1, #colors)]
-        local overlap = false
-        if existing then
-            for _, c in ipairs(existing) do
-                if circles_overlap(x, y, r, c.x, c.y, c.r) then
-                    overlap = true
-                    break
-                end
-            end
+-- Get canvas size once
+local w, h = lge.get_canvas_size()
+
+if not balls then
+    balls = {}
+    -- Initialize multiple balls
+    for i = 1, NUM_BALLS do
+        local r = math.random(BALL_MIN_R, BALL_MAX_R)
+        -- Ensure position is well within boundaries
+        local x = math.random(r, w - r)
+        local y = math.random(r, h - r)
+
+        -- Generate non-zero random velocities
+        local dx = math.random() * BALL_MAX_V * (math.random() > 0.5 and 1 or -1)
+        if math.abs(dx) < 1 then
+            dx = dx * 2 * (dx >= 0 and 1 or -1)
         end
-        if not overlap or tries > 30 then
-            return {
-                x = x,
-                y = y,
-                r = r,
-                color = color
-            }
+        local dy = math.random() * BALL_MAX_V * (math.random() > 0.5 and 1 or -1)
+        if math.abs(dy) < 1 then
+            dy = dy * 2 * (dy >= 0 and 1 or -1)
         end
-        tries = tries + 1
+
+        balls[i] = {
+            x = x,
+            y = y,
+            dx = dx,
+            dy = dy,
+            r = r,
+            color = random_color(),
+            orig_dx = dx,
+            orig_dy = dy
+        }
     end
 end
 
-function start_round()
-    circles = {}
-    sequence = {}
-    current_step = 1
-    showing_sequence = true
-    show_timer = 0
-    for i = 1, round do
-        local c = random_circle(circles)
-        table.insert(circles, c)
-        table.insert(sequence, c)
+-- Function to handle wall collisions for a single ball
+local function check_wall_collision(ball, w, h)
+    -- X-axis collision
+    if (ball.x - ball.r < 0 and ball.dx < 0) then
+        ball.dx = -ball.dx
+        ball.x = ball.r -- reposition to prevent sticking
+    elseif (ball.x + ball.r > w and ball.dx > 0) then
+        ball.dx = -ball.dx
+        ball.x = w - ball.r -- reposition to prevent sticking
+    end
+
+    -- Y-axis collision
+    if (ball.y - ball.r < 0 and ball.dy < 0) then
+        ball.dy = -ball.dy
+        ball.y = ball.r -- reposition to prevent sticking
+    elseif (ball.y + ball.r > h and ball.dy > 0) then
+        ball.dy = -ball.dy
+        ball.y = h - ball.r -- reposition to prevent sticking
     end
 end
 
-function reset_game()
-    round = 1
-    score = 0
-    game_over = false
-    start_round()
-end
+-- Function to handle elastic collision between two balls (b1 and b2)
+local function check_ball_collision(b1, b2)
+    local dx = b2.x - b1.x
+    local dy = b2.y - b1.y
+    local dist_sq = dx * dx + dy * dy
+    local min_dist = b1.r + b2.r
 
-function draw_circles(highlight_idx)
-    for i, c in ipairs(circles) do
-        local color = c.color
-        if highlight_idx == i then
-            color = '#ffffff'
-        end
-        lge.draw_circle(c.x, c.y, c.r, color)
-    end
-end
+    -- Check for collision (distance <= sum of radii)
+    if dist_sq <= min_dist * min_dist then
+        local dist = math.sqrt(dist_sq)
 
-function loop()
-    lge.clear_canvas()
-    if game_over then
-        lge.draw_text(canvas_w // 2 - 60, canvas_h // 2 - 20, 'Game Over!', '#ff0000')
-        lge.draw_text(canvas_w // 2 - 60, canvas_h // 2 + 10, 'Score: ' .. score, '#ffffff')
-        lge.draw_text(canvas_w // 2 - 60, canvas_h // 2 + 40, 'Touch to restart', '#00ff00')
-        local _, x, y = lge.get_mouse_click()
-        if x then
-            reset_game()
-        end
-    elseif showing_sequence then
-        local idx = math.floor(show_timer / show_delay) + 1
-        if idx <= #sequence then
-            draw_circles(idx)
-            show_timer = show_timer + 1
-        else
-            showing_sequence = false
-        end
-    else
-        draw_circles()
-        local _, x, y = lge.get_mouse_click()
-        if x then
-            local c = sequence[current_step]
-            if c and math.sqrt((x - c.x) ^ 2 + (y - c.y) ^ 2) <= c.r then
-                -- Remove the touched circle from the field
-                for i, cc in ipairs(circles) do
-                    if cc == c then
-                        table.remove(circles, i)
-                        break
-                    end
-                end
-                current_step = current_step + 1
-                if current_step > #sequence then
-                    score = round
-                    round = round + 1
-                    start_round()
-                end
-            else
-                game_over = true
-            end
+        -- 1. Resolve overlap (push balls apart to prevent sticking)
+        local overlap = min_dist - dist
+        if dist == 0 then
+            dist = 0.001
+        end -- Avoid division by zero
+
+        -- Normal vector (unit)
+        local nx = dx / dist
+        local ny = dy / dist
+
+        -- Push balls apart along the normal vector
+        -- We apply half the overlap distance to each ball for a balanced push
+        b1.x = b1.x - nx * overlap * 0.5
+        b1.y = b1.y - ny * overlap * 0.5
+        b2.x = b2.x + nx * overlap * 0.5
+        b2.y = b2.y + ny * overlap * 0.5
+
+        -- 2. Elastic Collision Response (assuming equal mass)
+        local vx1 = b1.dx
+        local vy1 = b1.dy
+        local vx2 = b2.dx
+        local vy2 = b2.dy
+
+        -- Relative velocity vector
+        local rv_x = vx2 - vx1
+        local rv_y = vy2 - vy1
+
+        -- Velocity along the normal (dot product of relative velocity and normal)
+        local v_dot_n = rv_x * nx + rv_y * ny
+
+        -- Only proceed if balls are moving towards each other
+        if v_dot_n < 0 then
+            -- Calculate impulse (2 * V.N since masses are equal and elasticity is 1)
+            local impulse = 2 * v_dot_n
+
+            -- Apply the impulse to the velocities
+            b1.dx = vx1 + nx * impulse
+            b1.dy = vy1 + ny * impulse
+
+            b2.dx = vx2 - nx * impulse
+            b2.dy = vy2 - ny * impulse
         end
     end
 end
-
-math.randomseed(os.time())
-reset_game()
 
 while true do
-    loop()
+    lge.clear_canvas()
+
+    -- 1. Update positions & Velocity management
+    for _, ball in ipairs(balls) do
+        ball.x = ball.x + ball.dx
+        ball.y = ball.y + ball.dy
+
+        -- Cap velocity
+        if ball.dx > MAX_VEL then
+            ball.dx = MAX_VEL
+        end
+        if ball.dx < -MAX_VEL then
+            ball.dx = -MAX_VEL
+        end
+        if ball.dy > MAX_VEL then
+            ball.dy = MAX_VEL
+        end
+        if ball.dy < -MAX_VEL then
+            ball.dy = -MAX_VEL
+        end
+
+        -- Gradually restore velocity to original
+        local sign_dx = (ball.dx >= 0) and 1 or -1
+        local sign_dy = (ball.dy >= 0) and 1 or -1
+        local mag_dx = math.abs(ball.dx) + (math.abs(ball.orig_dx) - math.abs(ball.dx)) * RESTORE_RATE
+        local mag_dy = math.abs(ball.dy) + (math.abs(ball.orig_dy) - math.abs(ball.dy)) * RESTORE_RATE
+        ball.dx = sign_dx * mag_dx
+        ball.dy = sign_dy * mag_dy
+    end
+
+    -- 2. Check wall collisions for each ball
+    for _, ball in ipairs(balls) do
+        check_wall_collision(ball, w, h)
+    end
+
+    -- 3. Check all unique ball-to-ball collisions (O(N^2) checks)
+    -- This nested loop ensures every ball is checked against every other ball exactly once.
+    for i = 1, #balls do
+        for j = i + 1, #balls do
+            check_ball_collision(balls[i], balls[j])
+        end
+    end
+
+    -- 4. Draw balls
+    for _, ball in ipairs(balls) do
+        lge.draw_circle(ball.x, ball.y, ball.r, ball.color)
+    end
+
+    local fps = math.floor(lge.fps() * 100 + 0.5) / 100
+    lge.draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
+
     lge.present()
-    lge.delay(33)
+    lge.delay(1)
 end
 )";
 

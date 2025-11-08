@@ -2,8 +2,9 @@
 #include <TFT_eSPI.h> // Graphics library
 #include <SPI.h>
 #include <XPT2046_Touchscreen.h> // Touch library
+#include <LittleFS.h>
 #include "luaDriver.hpp"
-#include "loopExample.hpp"
+#include "flags.h"
 
 // --- Configuration ---
 // TFT_eSPI is configured via build_flags in platformio.ini
@@ -18,11 +19,6 @@
 #define CS_PIN TOUCH_CS
 #define T_IRQ_PIN TOUCH_IRQ
 
-#define DO_LOOP 1
-
-#define USE_VSPI
-
-#define BACKGROUND_COLOR TFT_BLACK
 #ifdef USE_VSPI
 #define TOUCH_SCLK 25
 #define TOUCH_MISO 39
@@ -41,15 +37,8 @@ XPT2046_Touchscreen ts(CS_PIN, T_IRQ_PIN);
 // --- Game / example objects ---
 TFT_eSPI tft = TFT_eSPI();
 
-#define TS_MIN_X 240
-#define TS_MAX_X 3780
-#define TS_MIN_Y 220
-#define TS_MAX_Y 3800
-
 // --- Function Declarations ---
 void runDiagnostics(const char *message);
-
-LoopExample loopExample(&tft, &ts);
 
 LuaDriver luaDriver(&tft, &ts);
 
@@ -65,11 +54,8 @@ void setup()
 #endif
 
   tft.setRotation(2);
-  tft.fillScreen(BACKGROUND_COLOR);
+  tft.fillScreen(TFT_BLACK);
   tft.initDMA();
-
-  // Initialize example
-  loopExample.begin();
 
 #ifdef USE_VSPI
   touchSPI.begin(TOUCH_SCLK, TOUCH_MISO, TOUCH_MOSI, -1);
@@ -80,11 +66,24 @@ void setup()
 
   ts.setRotation(1);
 
-  runDiagnostics("Initial setup complete");
+#if LUA_FROM_FILE
+  if (!LittleFS.begin(true))
+  {
+    Serial.println("LittleFS mount failed");
+  }
+  else
+  {
+    Serial.println("LittleFS mounted successfully");
+  }
+#endif
 
   luaDriver.begin();
 
   runDiagnostics("Lua driver initialized");
+
+#if LUA_FROM_FILE
+  LittleFS.end();
+#endif
 }
 
 void runDiagnostics(const char *message = nullptr)
@@ -128,6 +127,22 @@ void runDiagnostics(const char *message = nullptr)
                                                        : ESP.getFlashChipMode() == FM_DIO    ? "DIO"
                                                        : ESP.getFlashChipMode() == FM_DOUT   ? "DOUT"
                                                                                              : "UNKNOWN");
+
+#if LUA_FROM_FILE
+  // LittleFS diagnostics
+  size_t total = LittleFS.totalBytes();
+  size_t used = LittleFS.usedBytes();
+  Serial.printf("LittleFS: %u used / %u total (%.1f%%)\n",
+                used, total, 100.0 * used / total);
+
+  File root = LittleFS.open("/");
+  File file = root.openNextFile();
+  while (file)
+  {
+    Serial.printf("FILE: /%s (%d bytes)\n", file.name(), file.size());
+    file = root.openNextFile();
+  }
+#endif
 }
 
 void loop()

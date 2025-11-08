@@ -14,11 +14,6 @@ extern "C"
 #include "lualib.h"
 #endif
 
-#define DEBUG_DELAY_AVERAGE_PRINT 0
-#define DEBUG_PROFILING 1
-#define DIRTY_RECTS_OPTIMIZATION 1
-#define DEBUG_SHOW_AVAILABLE_COLORS 1
-
 #include "luaDriver.hpp"
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
@@ -26,6 +21,9 @@ extern "C"
 #include <algorithm>
 
 #include "luaScript.h"
+#include <memory>
+#include <LittleFS.h>
+#include "flags.h"
 
 // C-style Lua hooks (need C linkage compatible signatures)
 static int luaLedControl(lua_State *L);
@@ -44,7 +42,9 @@ LuaDriver::LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts)
 LuaDriver::~LuaDriver()
 {
     if (L_)
+    {
         lua_close(L_);
+    }
 }
 
 void LuaDriver::begin()
@@ -65,6 +65,8 @@ void LuaDriver::begin()
         Serial.println("Failed to create sprite");
     }
 
+    Serial.println(LUA_RELEASE);
+
     Serial.println("ESP32 Lua Interpreter Starting...");
     L_ = luaL_newstate();
     if (!L_)
@@ -72,6 +74,7 @@ void LuaDriver::begin()
         Serial.println("Failed to create Lua state");
         return;
     }
+
     luaL_openlibs(L_);
     registerFunctions();
 
@@ -87,11 +90,59 @@ void LuaDriver::begin()
     }
     Serial.println("}");
 #endif
+
+#if LUA_FROM_FILE
+    if (!this->cached_lua_fs_buf && !this->cached_lua_fs_sz)
+    {
+        File f = LittleFS.open(RUNTIME_LUA_FILE, "r");
+        if (!f)
+        {
+            Serial.printf("cannot open %s\n", RUNTIME_LUA_FILE);
+        }
+
+        size_t sz = f.size();
+        if (sz == 0)
+        {
+            Serial.printf("file %s is empty\n", RUNTIME_LUA_FILE);
+        }
+        else
+        {
+            std::unique_ptr<char[]> buf(new char[sz + 1]);
+            if (f.readBytes(buf.get(), sz) != sz)
+            {
+                Serial.println("short read");
+            }
+            else
+            {
+                buf.get()[sz] = '\0';
+                cached_lua_fs_buf = buf.release();
+                cached_lua_fs_sz = sz;
+                f.close();
+            }
+        }
+    }
+#endif
+}
+
+int LuaDriver::runLuaFromLittleFS()
+{
+    // mode=nullptr allows both text and bytecode
+    int st = luaL_loadbufferx(L_, cached_lua_fs_buf, cached_lua_fs_sz, RUNTIME_LUA_FILE, nullptr);
+    if (st != LUA_OK)
+    {
+        return st;
+    }
+    st = lua_pcall(L_, 0, LUA_MULTRET, 0);
+    return st;
 }
 
 void LuaDriver::loop()
 {
+#if LUA_FROM_FILE
+    const int result = runLuaFromLittleFS();
+#else
     const int result = luaL_dostring(L_, lua_script);
+#endif
     if (result != LUA_OK)
     {
         Serial.print("Error in periodic script: ");
@@ -99,8 +150,8 @@ void LuaDriver::loop()
         lua_pop(L_, 1);
     }
 
-    Serial.printf("luaScript - finished\n");
-    delay(1000);
+    Serial.printf("luaScript - finished - restarting in 10 seconds\n");
+    delay(10000);
 }
 
 lua_State *LuaDriver::state()
@@ -478,6 +529,7 @@ int LuaDriver::lge_present(lua_State *L)
     {
         // Report average time for the optimized (partial) copy
         Serial.printf("Average time per call lge_present in ms: %g\n", (totalTime) / float(callCount));
+        Serial.printf("Free/Total/MinFree (high watermark) Internal SRAM: %d/%d/%d bytes\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap());
         callCount = 0;
         totalTime = 0;
     }

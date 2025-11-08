@@ -9,6 +9,7 @@ struct lua_State;
 #include <XPT2046_Touchscreen.h>
 #include <vector>
 #include "dirtyRects.hpp"
+#include "flags.h"
 
 // Mouse click event state
 struct MouseClick
@@ -40,8 +41,12 @@ private:
     TFT_eSprite *spr_;
     MouseClick mouse_click_ = {0, 0, 0, false, false};
 
+    char *cached_lua_fs_buf = nullptr;
+    size_t cached_lua_fs_sz = 0;
+
     void registerFunctions();
     void registerLgeModule();
+    int runLuaFromLittleFS();
 
     static int lge_clear_canvas(lua_State *L);
     static int lge_get_canvas_size(lua_State *L);
@@ -66,6 +71,7 @@ private:
     static constexpr int TS_MAX_X_CONST = 3780;
     static constexpr int TS_MIN_Y_CONST = 220;
     static constexpr int TS_MAX_Y_CONST = 3800;
+    static constexpr const char *RUNTIME_LUA_FILE = "/runtime.luac";
 };
 
 #endif // LUA_DRIVER_HPP
