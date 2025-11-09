@@ -11,10 +11,10 @@
 
 // XPT2046 Touch Controller setup
 #ifndef TOUCH_CS
-#define TOUCH_CS 33 // fallback default, update if needed
+#define TOUCH_CS 33 // fallback default
 #endif
 #ifndef TOUCH_IRQ
-#define TOUCH_IRQ 36 // fallback default, update if needed
+#define TOUCH_IRQ 36 // fallback default
 #endif
 #define CS_PIN TOUCH_CS
 #define T_IRQ_PIN TOUCH_IRQ
@@ -29,12 +29,7 @@ SPIClass touchSPI(HSPI); // Use HSPI for the touch controller
 #endif
 
 // LEDs are 4, 16, 17 for CYD (R, G, B)
-
-// Note: The XPT2046 shares the hardware SPI bus with the TFT.
-// Construct the touch object with CS/TIRQ only and call begin() with the SPI instance
 XPT2046_Touchscreen ts(CS_PIN, T_IRQ_PIN);
-
-// --- Game / example objects ---
 TFT_eSPI tft = TFT_eSPI();
 
 // --- Function Declarations ---
@@ -101,11 +96,7 @@ void runDiagnostics(const char *message = nullptr)
   Serial.printf("TFT_BL pin=%d state=%d\n", TFT_BL, digitalRead(TFT_BL));
 #endif
 
-  // Print diagnostics so user can verify display/backlight state over Serial
   Serial.printf("TFT init: w=%d h=%d rot=%d\n", tft.width(), tft.height(), tft.getRotation());
-#if defined(TFT_BL)
-  Serial.printf("TFT_BL pin=%d state=%d\n", TFT_BL, digitalRead(TFT_BL));
-#endif
 
   if (psramFound())
   {
@@ -149,6 +140,5 @@ void runDiagnostics(const char *message = nullptr)
 
 void loop()
 {
-  // loopExample.loop();
   luaDriver.loop();
 }
