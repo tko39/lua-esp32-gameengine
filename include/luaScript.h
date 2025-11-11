@@ -687,7 +687,6 @@ end
 math.randomseed(os.time())
 reset_game()
 local last = collectgarbage("generational", 10, 50)
-print("Initial GC:", last)
 local framesBeforeTest = 300
 while true do
   lge.clear_canvas() 

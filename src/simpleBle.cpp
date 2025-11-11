@@ -72,11 +72,9 @@ int SimpleBle::notificationGapHandlerInstance(struct ble_gap_event *event)
             {
             case 0x01:
                 currentKeyDown = KEY_UP;
-                Serial.printf("Key up pressed\n");
                 break;
             case 0x02:
                 currentKeyDown = KEY_DOWN;
-                Serial.printf("Key down pressed\n");
                 break;
             default:
                 currentKeyDown = KEY_NONE;
