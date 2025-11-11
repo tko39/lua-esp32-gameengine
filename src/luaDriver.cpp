@@ -143,12 +143,69 @@ int LuaDriver::runLuaFromFS()
     return st;
 }
 
+int LuaDriver::scriptSelectionMenu()
+{
+    const int numScripts = sizeof(lua_scripts) / sizeof(lua_scripts[0]) - 1;
+
+    spr_->fillScreen(TFT_BLACK);
+    spr_->setTextColor(TFT_WHITE, TFT_BLACK);
+    spr_->setTextSize(2);
+
+    spr_->drawString("Select a Lua script to run:\n\n", 10, 10);
+    for (int i = 0; i < numScripts; i++)
+    {
+        spr_->drawString(String(i + 1) + ": Script " + String(i + 1) + "\n", 10, 30 + i * 20);
+    }
+    spr_->pushSprite(0, 0);
+
+    while (true)
+    {
+        if (ts_->touched())
+        {
+            TS_Point p = ts_->getPoint();
+            int y = map(p.y, TS_MIN_Y_CONST, TS_MAX_Y_CONST, 0, tft_->height());
+            int index = (y - 30) / 20;
+            if (index >= 0 && index < numScripts)
+            {
+                Serial.printf("Selected script %d\n", index + 1);
+                spr_->fillScreen(TFT_BLACK);
+                spr_->pushSprite(0, 0);
+                return index;
+            }
+        }
+        delay(100);
+    }
+}
+
 void LuaDriver::loop()
 {
 #if LUA_FROM_FILE
     const int result = runLuaFromFS();
 #else
-    const int result = luaL_dostring(L_, lua_script);
+    const int numScripts = sizeof(lua_scripts) / sizeof(lua_scripts[0]) - 1;
+    int scriptIndex = 0;
+    switch (numScripts)
+    {
+    case 0:
+    {
+        Serial.println("No embedded Lua scripts found!");
+        delay(10000);
+        return;
+    }
+    case 1:
+    {
+        scriptIndex = 0;
+        break;
+    }
+    default:
+    {
+        Serial.printf("Multiple (%d) embedded Lua scripts found.\n", numScripts);
+        scriptIndex = scriptSelectionMenu();
+        break;
+    }
+    }
+
+    const int result = luaL_dostring(L_, lua_scripts[scriptIndex]);
 #endif
     if (result != LUA_OK)
     {
@@ -528,6 +585,7 @@ int LuaDriver::lge_draw_text(lua_State *L)
 
         self->spr_->setTextFont(2);
         self->spr_->setTextColor(color);
+        self->spr_->setTextSize(1);
 
         // Get the bounding box BEFORE drawing
         int text_w = self->spr_->textWidth(text);

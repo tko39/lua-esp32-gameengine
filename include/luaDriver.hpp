@@ -48,6 +48,7 @@ private:
     void registerFunctions();
     void registerLgeModule();
     int runLuaFromFS();
+    int scriptSelectionMenu();
 
     static int lge_clear_canvas(lua_State *L);
     static int lge_get_canvas_size(lua_State *L);
