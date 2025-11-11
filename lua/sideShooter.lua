@@ -351,6 +351,13 @@ local function update_player(dt)
     local _, mx, my = lge.get_mouse_position()
     if my then
         player.y = clamp(my, 10, H - 10)
+    else
+        -- keyboard fallback
+        if lge.is_key_down("UP") then
+            player.y = math.max(10, player.y - PLAYER_SPEED * dt)
+        elseif lge.is_key_down("DOWN") then
+            player.y = math.min(H - 10, player.y + PLAYER_SPEED * dt)
+        end
     end
 
     player.fire_cd = player.fire_cd - dt
@@ -659,6 +666,9 @@ math.randomseed(os.time())
 
 reset_game()
 
+local last = collectgarbage("generational", 10, 50)
+local framesBeforeTest = 300
+
 while true do
     lge.clear_canvas() -- black background
 
@@ -690,6 +700,16 @@ while true do
     -- Optional FPS
     -- local fps = math.floor(lge.fps()*100+0.5)/100
     -- lge.draw_text(5, 18, "FPS: "..fps, C.WHITE)
+
+    framesBeforeTest = framesBeforeTest - 1
+    if framesBeforeTest == 0 then
+        print(("Mem: %.1f KB"):format(collectgarbage("count")))
+        framesBeforeTest = 300
+    end
+
+    if framesBeforeTest % 60 == 0 then
+        collectgarbage("step", 10)
+    end
 
     lge.present()
     lge.delay(FRAME_DELAY_MS)

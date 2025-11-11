@@ -91,6 +91,11 @@ void LuaDriver::begin()
 #endif
 }
 
+void LuaDriver::setIsKeyDownCallback(KeyPressedCallback callback)
+{
+    isPressedCallback_ = callback;
+}
+
 void LuaDriver::loadLuaFromFS()
 {
 #if LUA_FROM_FILE
@@ -331,6 +336,10 @@ void LuaDriver::registerLgeModule()
     lua_pushlightuserdata(L_, self);
     lua_pushcclosure(L_, lge_get_mouse_position, 1);
     lua_setfield(L_, -2, "get_mouse_position");
+
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_is_key_down, 1);
+    lua_setfield(L_, -2, "is_key_down");
 
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
@@ -730,5 +739,40 @@ int LuaDriver::lge_get_mouse_position(lua_State *L)
         lua_pushnil(L);
         lua_pushnil(L);
         return 3;
+    }
+}
+
+// Lua binding: lge.is_key_down()
+int LuaDriver::lge_is_key_down(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (self && self->isPressedCallback_)
+    {
+        const char *text = luaL_checkstring(L, 1);
+        if (!text)
+        {
+            lua_pushboolean(L, false);
+            return 1;
+        }
+
+        // Map text to ControllerButton enum
+        KeyCode btn = KeyCode::KEY_NONE;
+        if (strcasecmp(text, "up") == 0)
+            btn = KeyCode::KEY_UP;
+        else if (strcasecmp(text, "down") == 0)
+            btn = KeyCode::KEY_DOWN;
+        else if (strcasecmp(text, "left") == 0)
+            btn = KeyCode::KEY_LEFT;
+        else if (strcasecmp(text, "right") == 0)
+            btn = KeyCode::KEY_RIGHT;
+
+        bool isDown = self->isPressedCallback_(btn);
+        lua_pushboolean(L, isDown);
+        return 1;
+    }
+    else
+    {
+        lua_pushboolean(L, false);
+        return 1;
     }
 }

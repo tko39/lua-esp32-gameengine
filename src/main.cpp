@@ -6,6 +6,10 @@
 #include "luaDriver.hpp"
 #include "flags.h"
 
+#if ENABLE_BLE
+#include "simpleBle.hpp"
+#endif
+
 // --- Configuration ---
 // TFT_eSPI is configured via build_flags in platformio.ini
 
@@ -36,6 +40,10 @@ TFT_eSPI tft = TFT_eSPI();
 void runDiagnostics(const char *message);
 
 LuaDriver luaDriver(&tft, &ts);
+
+#if ENABLE_BLE
+SimpleBle simpleBle;
+#endif
 
 void setup()
 {
@@ -74,6 +82,13 @@ void setup()
   }
 
   luaDriver.loadLuaFromFS();
+#endif
+
+#if ENABLE_BLE
+  if (simpleBle.begin())
+  {
+    luaDriver.setIsKeyDownCallback(simpleBle.isKeyDown);
+  }
 #endif
 
   runDiagnostics("Lua driver initialized");

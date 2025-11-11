@@ -10,6 +10,7 @@ struct lua_State;
 #include <vector>
 #include "dirtyRects.hpp"
 #include "flags.h"
+#include "controller.hpp"
 
 // Mouse click event state
 struct MouseClick
@@ -32,6 +33,7 @@ public:
     void loop();
     lua_State *state();
     void callLuaFunctionFromCpp();
+    void setIsKeyDownCallback(KeyPressedCallback callback);
 
 private:
     lua_State *L_;
@@ -41,6 +43,7 @@ private:
     XPT2046_Touchscreen *ts_;
     TFT_eSprite *spr_;
     MouseClick mouse_click_ = {0, 0, 0, false, false};
+    KeyPressedCallback isPressedCallback_ = nullptr;
 
     char *cached_lua_fs_buf = nullptr;
     size_t cached_lua_fs_sz = 0;
@@ -63,6 +66,7 @@ private:
     static int lge_fps(lua_State *L);
     static int lge_get_mouse_click(lua_State *L);
     static int lge_get_mouse_position(lua_State *L);
+    static int lge_is_key_down(lua_State *L);
     static uint16_t parseHexColor(const char *hex);
 
     std::vector<DirtyRect> current_dirty_rects_;

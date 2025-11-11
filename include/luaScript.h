@@ -2,8 +2,8 @@
 #ifndef LUASCRIPT_H
 #define LUASCRIPT_H
 
-const char *lua_scripts[] = {
-    R"(
+const char* lua_scripts[] = {
+  R"(
 local NUM_BALLS = 4
 local BALL_MIN_R = 15
 local BALL_MAX_R = 30
@@ -130,10 +130,11 @@ while true do
   local fps = math.floor(lge.fps() * 100 + 0.5) / 100
   lge.draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
   lge.present()
-  lge.delay(1)
+  lge.delay(1) 
 end
-)",
-    R"(
+)"
+  ,
+  R"(
 local W, H = 320, 240
 local PLAYER_X = 14
 local PLAYER_SPEED = 220 
@@ -421,6 +422,12 @@ local function update_player(dt)
   local _, mx, my = lge.get_mouse_position()
   if my then
     player.y = clamp(my, 10, H - 10)
+  else
+    if lge.is_key_down("UP") then
+      player.y = math.max(10, player.y - PLAYER_SPEED * dt)
+    elseif lge.is_key_down("DOWN") then
+      player.y = math.min(H - 10, player.y + PLAYER_SPEED * dt)
+    end
   end
   player.fire_cd = player.fire_cd - dt
   if player.fire_cd <= 0 then
@@ -679,6 +686,9 @@ local function reset_game()
 end
 math.randomseed(os.time())
 reset_game()
+local last = collectgarbage("generational", 10, 50)
+print("Initial GC:", last)
+local framesBeforeTest = 300
 while true do
   lge.clear_canvas() 
   if game_over then
@@ -702,10 +712,20 @@ while true do
   draw_powerups()
   draw_particles()
   draw_ui()
+  framesBeforeTest = framesBeforeTest - 1
+  if framesBeforeTest == 0 then
+    print(("Mem: %.1f KB"):format(collectgarbage("count")))
+    framesBeforeTest = 300
+  end
+  if framesBeforeTest % 60 == 0 then
+    collectgarbage("step", 10)
+  end
   lge.present()
   lge.delay(FRAME_DELAY_MS)
 end
-)",
-    nullptr};
+)"
+  ,
+  nullptr
+};
 
 #endif // LUASCRIPT_H
