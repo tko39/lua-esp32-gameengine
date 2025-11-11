@@ -1,3 +1,5 @@
+#include "flags.h"
+#if ENABLE_BLE
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include "simpleBle.hpp"
@@ -240,3 +242,4 @@ bool SimpleBle::isKeyDown(KeyCode key)
     // Return a default value or implement the actual callback logic as needed
     return false;
 }
+#endif // ENABLE_BLE

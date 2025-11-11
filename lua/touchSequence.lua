@@ -100,24 +100,31 @@ function loop()
         draw_circles()
         local _, x, y = lge.get_mouse_click()
         if x then
-            local c = sequence[current_step]
-            if c and math.sqrt((x - c.x) ^ 2 + (y - c.y) ^ 2) <= c.r then
-                -- Remove the touched circle from the field
-                for i, cc in ipairs(circles) do
-                    if cc == c then
-                        table.remove(circles, i)
-                        break
-                    end
+            -- Check if any circle was touched
+            local touched_idx = nil
+            for i, c in ipairs(circles) do
+                if math.sqrt((x - c.x) ^ 2 + (y - c.y) ^ 2) <= c.r then
+                    touched_idx = i
+                    break
                 end
-                current_step = current_step + 1
-                if current_step > #sequence then
-                    score = round
-                    round = round + 1
-                    start_round()
-                end
-            else
-                game_over = true
             end
+
+            if touched_idx then
+                local c = circles[touched_idx]
+                local expected = sequence[current_step]
+                if c == expected then
+                    table.remove(circles, touched_idx)
+                    current_step = current_step + 1
+                    if current_step > #sequence then
+                        score = round
+                        round = round + 1
+                        start_round()
+                    end
+                else
+                    game_over = true
+                end
+            end
+            -- If no circle was touched, do nothing (no penalty)
         end
     end
 end
