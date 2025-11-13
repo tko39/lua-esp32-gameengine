@@ -46,6 +46,20 @@ if [ "$mode" == "header" ]; then
     echo "  nullptr" >> "$output_file"
     echo "};" >> "$output_file"
     echo "" >> "$output_file"
+
+    echo "const char* script_names[] = {" >> "$output_file"
+    for input_file in "${input_files[@]}"; do
+        filename=$(basename "$input_file")
+        filename="${filename%.*}"
+        # Split camel case and capitalize each word
+        formatted_name=$(echo "$filename" | sed -E 's/([a-z])([A-Z])/\1 \2/g' | awk '{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1)) substr($i,2)}}1')
+        filename="$formatted_name"
+        echo "  \"$filename\"," >> "$output_file"
+    done
+
+    echo "  nullptr" >> "$output_file"
+    echo "};" >> "$output_file"
+    echo "" >> "$output_file"
     echo "#endif // LUASCRIPT_H" >> "$output_file"
 elif [ "$mode" == "luac" ]; then
     if [ "${#input_files[@]}" -ne 1 ]; then

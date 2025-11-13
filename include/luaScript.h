@@ -856,4 +856,11 @@ end
   nullptr
 };
 
+const char* script_names[] = {
+  "Bouncing Balls",
+  "Touch Sequence",
+  "Side Shooter",
+  nullptr
+};
+
 #endif // LUASCRIPT_H

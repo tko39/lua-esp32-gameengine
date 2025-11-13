@@ -151,6 +151,7 @@ int LuaDriver::runLuaFromFS()
 int LuaDriver::scriptSelectionMenu()
 {
     const int numScripts = sizeof(lua_scripts) / sizeof(lua_scripts[0]) - 1;
+    const int numScriptNames = sizeof(script_names) / sizeof(script_names[0]) - 1;
 
     spr_->fillScreen(TFT_BLACK);
     spr_->setTextColor(TFT_WHITE, TFT_BLACK);
@@ -159,7 +160,13 @@ int LuaDriver::scriptSelectionMenu()
     spr_->drawString("Select a Lua script to run:\n\n", 10, 10);
     for (int i = 0; i < numScripts; i++)
     {
-        spr_->drawString(String(i + 1) + ": Script " + String(i + 1) + "\n", 10, 30 + i * 20);
+        if (i >= numScriptNames || script_names[i] == nullptr)
+        {
+            spr_->drawString(String(i + 1) + ": Script " + String(i + 1) + "\n", 10, 30 + i * 20);
+            continue;
+        }
+
+        spr_->drawString(String(i + 1) + ": " + String(script_names[i]) + "\n", 10, 30 + i * 20);
     }
     spr_->pushSprite(0, 0);
 
