@@ -5,43 +5,13 @@
 --     - Back-face Culling
 --     - Depth Sorting (Painter's Algorithm)
 --     - Colors in #RRGGBB format
--- Helper functions for 3D rotation matrices
--- These take a point (a table {x, y, z}) and an angle (in radians)
--- and return a new, rotated point.
-local function rotate_x(p, angle)
-    local cos_a = math.cos(angle)
-    local sin_a = math.sin(angle)
-    return {
-        x = p.x,
-        y = p.y * cos_a - p.z * sin_a,
-        z = p.y * sin_a + p.z * cos_a
-    }
-end
-
-local function rotate_y(p, angle)
-    local cos_a = math.cos(angle)
-    local sin_a = math.sin(angle)
-    return {
-        x = p.x * cos_a + p.z * sin_a,
-        y = p.y,
-        z = -p.x * sin_a + p.z * cos_a
-    }
-end
-
-local function rotate_z(p, angle)
-    local cos_a = math.cos(angle)
-    local sin_a = math.sin(angle)
-    return {
-        x = p.x * cos_a - p.y * sin_a,
-        y = p.x * sin_a + p.y * cos_a,
-        z = p.z
-    }
-end
-
----
--- ### 🌎 Global Variables
----
-
+--     - OPTIMIZED: Pre-calculated trig and inlined rotations
+-- 
+-- [REMOVED] rotate_x, rotate_y, rotate_z functions are no longer needed
+-- as they will be inlined in the draw() loop for performance.
+---------------------------------
+--  🌎 Global Variables
+---------------------------------
 -- Canvas dimensions
 local canvas_w, canvas_h = lge.get_canvas_size()
 local center_x = canvas_w / 2
@@ -112,9 +82,9 @@ local angle_z = 0
 local fov = 256 -- Field of View (acts as a zoom)
 local distance = 5 -- Distance from camera to cube's center
 
----
--- ### ⚙️ Main Loop Functions
----
+---------------------------------
+--  ⚙️ Main Loop Functions
+---------------------------------
 
 -- Update logic (called once per frame)
 function update()
@@ -131,32 +101,54 @@ function draw()
     local transformed_vertices = {}
     local faces_to_draw = {}
 
+    -- **OPTIMIZATION 1: Pre-calculate trig values**
+    -- These are constant for all vertices in this frame.
+    local cos_x = math.cos(angle_x)
+    local sin_x = math.sin(angle_x)
+    local cos_y = math.cos(angle_y)
+    local sin_y = math.sin(angle_y)
+    local cos_z = math.cos(angle_z)
+    local sin_z = math.sin(angle_z)
+
     -- **Step 1 & 2: Transform and Project all vertices**
     for i = 1, #vertices do
         local v = vertices[i]
 
-        -- Apply rotations (in order: X, Y, Z)
-        local p = rotate_x(v, angle_x)
-        p = rotate_y(p, angle_y)
-        p = rotate_z(p, angle_z)
+        -- **OPTIMIZATION 2: Inlined rotations**
+        -- We apply the rotations directly here to avoid
+        -- function call overhead and, more importantly,
+        -- to prevent creating 3 new tables per vertex.
+
+        -- Rotate X
+        local y1 = v.y * cos_x - v.z * sin_x
+        local z1 = v.y * sin_x + v.z * cos_x
+
+        -- Rotate Y (using results from Rotate X)
+        local x2 = v.x * cos_y + z1 * sin_y
+        local z2 = -v.x * sin_y + z1 * cos_y
+
+        -- Rotate Z (using results from Rotate Y)
+        -- 'px, py, pz' are the final transformed point coordinates
+        local px = x2 * cos_z - y1 * sin_z
+        local py = x2 * sin_z + y1 * cos_z
+        local pz = z2 -- z-coordinate is unchanged by z-rotation
 
         -- Translate cube away from camera
-        p.z = p.z + distance
+        pz = pz + distance
 
         -- **Step 3: Perspective Projection**
         -- This is the core 3D -> 2D conversion
-        -- A point further away (larger p.z) will be divided by a larger
-        -- number, making it smaller and closer to the center.
-        local z_factor = fov / p.z
+        local z_factor = fov / pz
 
-        local screen_x = p.x * z_factor + center_x
-        local screen_y = p.y * z_factor + center_y
+        local screen_x = px * z_factor + center_x
+        local screen_y = py * z_factor + center_y
 
         -- Store the projected 2D point AND its original z-depth
+        -- We only create ONE new table per vertex here.
         transformed_vertices[i] = {
             x = screen_x,
             y = screen_y,
-            z = p.z
+            z = pz -- Store the *projected* z for depth sorting
         }
     end
 
@@ -171,15 +163,11 @@ function draw()
         local v2 = transformed_vertices[i2]
         local v3 = transformed_vertices[i3]
 
-        -- **Optimization 1: Back-Face Culling**
-        -- We calculate the 2D cross-product of two edges of the triangle.
-        -- The sign tells us if the triangle is "wound" clockwise or
-        -- counter-clockwise on the screen.
-        -- If it's (e.g.) clockwise, it's facing away, so we cull (skip) it.
+        -- **Optimization: Back-Face Culling**
         local normal_z = (v2.x - v1.x) * (v3.y - v1.y) - (v2.y - v1.y) * (v3.x - v1.x)
 
         if normal_z < 0 then
-            -- **Optimization 2: Depth Sorting (Painter's Algorithm)**
+            -- **Optimization: Depth Sorting (Painter's Algorithm)**
             -- Calculate average depth of the triangle
             local avg_z = (v1.z + v2.z + v3.z) / 3
 
@@ -205,19 +193,17 @@ function draw()
     -- correctly draw over them.
     for i = 1, #faces_to_draw do
         local f = faces_to_draw[i]
-        lge.draw_triangle(f.v1.x, f.v1.y, f.v2.x, f.v2.y, f.v3.x, f.v3.y, f.color -- Pass the color string directly
-        )
+        lge.draw_triangle(f.v1.x, f.v1.y, f.v2.x, f.v2.y, f.v3.x, f.v3.y, f.color)
     end
 
     -- Add some help text
-    lge.draw_text(10, 10, "3D Rotating Cube - Software Rendered", "#FFFFFF")
     local fps = math.floor(lge.fps() * 100 + 0.5) / 100
-    lge.draw_text(10, 30, "FPS: " .. fps, "#C8C8C8")
+    lge.draw_text(10, 10, "FPS: " .. fps, "#C8C8C8")
 end
 
----
--- ### 🚀 Main Program Loop
----
+---------------------------------
+--  🚀 Main Program Loop
+---------------------------------
 
 function main_loop()
     lge.draw_text(center_x - 50, center_y, "Loading...", "#FFFFFF")
@@ -230,9 +216,10 @@ function main_loop()
 
         -- Present the frame and delay
         lge.present()
-        lge.delay(1) -- Target ~60 FPS
+        lge.delay(1) -- Yield CPU to the OS
     end
 end
 
 -- Start the application
 main_loop()
+-- End of rotatingBox.lua

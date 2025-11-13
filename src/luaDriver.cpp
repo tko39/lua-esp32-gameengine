@@ -430,23 +430,24 @@ void LuaDriver::addDirtyRect(int x, int y, int w, int h)
 #endif
 }
 
+static inline int hexVal(char c)
+{
+    return (c <= '9')   ? c - '0'
+           : (c <= 'F') ? c - 'A' + 10
+           : (c <= 'f') ? c - 'a' + 10
+                        : 0;
+}
+
 uint16_t LuaDriver::parseHexColor(const char *hex)
 {
-    if (!hex)
+    if (!hex || hex[0] != '#' || strlen(hex) < 7)
         return TFT_WHITE;
-    int rr = 255, gg = 255, bb = 255;
-    if (hex[0] == '#')
-    {
-        unsigned int vr = 255, vg = 255, vb = 255;
-        if (sscanf(hex + 1, "%02x%02x%02x", &vr, &vg, &vb) == 3)
-        {
-            rr = (int)vr;
-            gg = (int)vg;
-            bb = (int)vb;
-        }
-    }
 
-    return ((rr & 0xF8) << 8) | ((gg & 0xFC) << 3) | (bb >> 3);
+    int r = hexVal(hex[1]) * 16 + hexVal(hex[2]);
+    int g = hexVal(hex[3]) * 16 + hexVal(hex[4]);
+    int b = hexVal(hex[5]) * 16 + hexVal(hex[6]);
+
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
 int LuaDriver::lge_clear_canvas(lua_State *L)

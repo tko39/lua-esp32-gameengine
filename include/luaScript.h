@@ -1,4 +1,4 @@
-// Auto-generated header file from lua/bouncingBalls.lua lua/touchSequence.lua lua/sideShooter.lua
+// Auto-generated header file from lua/bouncingBalls.lua lua/touchSequence.lua lua/sideShooter.lua lua/rotatingBox.lua
 #ifndef LUASCRIPT_H
 #define LUASCRIPT_H
 
@@ -853,6 +853,140 @@ while true do
 end
 )"
   ,
+  R"(
+local canvas_w, canvas_h = lge.get_canvas_size()
+local center_x = canvas_w / 2
+local center_y = canvas_h / 2
+local vertices = {{
+  x = -1,
+  y = -1,
+  z = -1
+}, 
+{
+  x = 1,
+  y = -1,
+  z = -1
+}, 
+{
+  x = 1,
+  y = 1,
+  z = -1
+}, 
+{
+  x = -1,
+  y = 1,
+  z = -1
+}, 
+{
+  x = -1,
+  y = -1,
+  z = 1
+}, 
+{
+  x = 1,
+  y = -1,
+  z = 1
+}, 
+{
+  x = 1,
+  y = 1,
+  z = 1
+}, 
+{
+  x = -1,
+  y = 1,
+  z = 1
+} 
+}
+local faces = { 
+{1, 4, 3, "#FF0000"}, {1, 3, 2, "#FF0000"}, 
+{5, 6, 7, "#00FF00"}, {5, 7, 8, "#00FF00"}, 
+{1, 5, 8, "#0000FF"}, {1, 8, 4, "#0000FF"}, 
+{2, 3, 7, "#FFFF00"}, {2, 7, 6, "#FFFF00"}, 
+{4, 8, 7, "#FF00FF"}, {4, 7, 3, "#FF00FF"}, 
+{1, 2, 6, "#00FFFF"}, {1, 6, 5, "#00FFFF"}}
+local angle_x = 0
+local angle_y = 0
+local angle_z = 0
+local fov = 256 
+local distance = 5 
+function update()
+  angle_x = angle_x + 0.01
+  angle_y = angle_y + 0.015
+  angle_z = angle_z + 0.005
+end
+function draw()
+  lge.clear_canvas()
+  local transformed_vertices = {}
+  local faces_to_draw = {}
+  local cos_x = math.cos(angle_x)
+  local sin_x = math.sin(angle_x)
+  local cos_y = math.cos(angle_y)
+  local sin_y = math.sin(angle_y)
+  local cos_z = math.cos(angle_z)
+  local sin_z = math.sin(angle_z)
+  for i = 1, #vertices do
+    local v = vertices[i]
+    local y1 = v.y * cos_x - v.z * sin_x
+    local z1 = v.y * sin_x + v.z * cos_x
+    local x2 = v.x * cos_y + z1 * sin_y
+    local z2 = -v.x * sin_y + z1 * cos_y
+    local px = x2 * cos_z - y1 * sin_z
+    local py = x2 * sin_z + y1 * cos_z
+    local pz = z2 
+    pz = pz + distance
+    local z_factor = fov / pz
+    local screen_x = px * z_factor + center_x
+    local screen_y = py * z_factor + center_y
+    transformed_vertices[i] = {
+      x = screen_x,
+      y = screen_y,
+      z = pz 
+    }
+  end
+  for i = 1, #faces do
+    local face = faces[i]
+    local i1, i2, i3 = face[1], face[2], face[3]
+    local color = face[4] 
+    local v1 = transformed_vertices[i1]
+    local v2 = transformed_vertices[i2]
+    local v3 = transformed_vertices[i3]
+    local normal_z = (v2.x - v1.x) * (v3.y - v1.y) - (v2.y - v1.y) * (v3.x - v1.x)
+    if normal_z < 0 then
+      local avg_z = (v1.z + v2.z + v3.z) / 3
+      table.insert(faces_to_draw, {
+        z = avg_z,
+        v1 = v1,
+        v2 = v2,
+        v3 = v3,
+        color = color
+      })
+    end
+  end
+  table.sort(faces_to_draw, function(a, b)
+    return a.z > b.z
+  end)
+  for i = 1, #faces_to_draw do
+    local f = faces_to_draw[i]
+    lge.draw_triangle(f.v1.x, f.v1.y, f.v2.x, f.v2.y, f.v3.x, f.v3.y, f.color)
+  end
+  local fps = math.floor(lge.fps() * 100 + 0.5) / 100
+  lge.draw_text(10, 10, "FPS: " .. fps, "#C8C8C8")
+end
+function main_loop()
+  lge.draw_text(center_x - 50, center_y, "Loading...", "#FFFFFF")
+  lge.present()
+  lge.delay(500)
+  while true do
+    update()
+    draw()
+    lge.present()
+    lge.delay(1) 
+  end
+end
+main_loop()
+)"
+  ,
   nullptr
 };
 
@@ -860,6 +994,7 @@ const char* script_names[] = {
   "Bouncing Balls",
   "Touch Sequence",
   "Side Shooter",
+  "Rotating Box",
   nullptr
 };
 
