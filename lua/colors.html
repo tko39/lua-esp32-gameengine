@@ -72,6 +72,74 @@
         box-shadow: 0 1px 4px #0006;
         transform: translate3d(1px, 2px, 0);
       }
+      .color-calculator {
+        margin: 40px auto 0 auto;
+        padding: 22px 28px 18px 28px;
+        background: #292d38;
+        border-radius: 14px;
+        box-shadow: 0 2px 12px #0007;
+        border: 1px solid #333;
+        max-width: 420px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .color-calculator label {
+        font-size: 16px;
+        font-weight: 600;
+        color: #b8eaff;
+        margin-bottom: 6px;
+        letter-spacing: 0.2px;
+      }
+      .color-calculator input[type="text"] {
+        background: #222;
+        color: #fff;
+        border: 1px solid #444cf7;
+        border-radius: 8px;
+        padding: 7px 12px;
+        font-size: 16px;
+        font-family: inherit;
+        margin-right: 8px;
+        outline: none;
+        transition: border 0.2s;
+      }
+      .color-calculator input[type="text"]:focus {
+        border: 1.5px solid #44e0ff;
+        background: #23263a;
+      }
+      .color-calculator button {
+        background: linear-gradient(90deg, #444cf7 0%, #44e0ff 100%);
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px #0004;
+        padding: 7px 18px;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+        outline: none;
+      }
+      .color-calculator button:hover {
+        background: linear-gradient(90deg, #44e0ff 0%, #444cf7 100%);
+        box-shadow: 0 4px 16px #0006;
+      }
+      .color-calculator button:active {
+        box-shadow: 0 1px 4px #0006;
+        transform: translate3d(1px, 2px, 0);
+      }
+      #calcResults {
+        margin-top: 18px;
+        width: 100%;
+        font-size: 15px;
+        color: #eee;
+      }
+      #calcResults b {
+        color: #44e0ff;
+        font-weight: 700;
+      }
     </style>
   </head>
   <body>
@@ -80,6 +148,22 @@
       <button id="toggleLabels">Toggle Labels</button>
     </div>
     <div class="grid" id="colorGrid"></div>
+    <div class="color-calculator">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <label for="hexInput" style="font-size: 15px; margin-right: 8px"
+          >Hex color:</label
+        >
+        <input
+          id="hexInput"
+          type="text"
+          maxlength="6"
+          placeholder="e.g. 4A6DFF"
+          style="width: 90px; font-size: 15px"
+        />
+        <button id="calcBtn" style="margin-left: 8px">Calculate</button>
+      </div>
+      <div id="calcResults" style="margin-top: 18px"></div>
+    </div>
     <script>
       const colors = {
         0: { 16: "0000", 24: "#000000" },
@@ -339,7 +423,10 @@
         254: { 16: "FFF5", 24: "#FFFFAD" },
         255: { 16: "FFFF", 24: "#FFFFFF" },
       };
-      // (Full dictionary omitted for brevity, but should be pasted in the file)
+
+      const reds = [0, 0x21, 0x4a, 0x6b, 0x94, 0xb5, 0xde, 0xff];
+      const greens = [0, 0x24, 0x49, 0x6d, 0x92, 0xb6, 0xdb, 0xff];
+      const blues = [0, 0x5a, 0xad, 0xff];
       const grid = document.getElementById("colorGrid");
       for (let i = 0; i < 256; ++i) {
         const c = colors[i];
@@ -360,6 +447,142 @@
         document.querySelectorAll(".label").forEach(function (el) {
           el.style.display = labelsVisible ? "" : "none";
         });
+      };
+
+      function hexToRgb(hex) {
+        hex = hex.replace(/^#/, "");
+        if (hex.length !== 6) return null;
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        if ([r, g, b].some(isNaN)) return null;
+        return { r, g, b };
+      }
+
+      function findClosest(val, arr) {
+        let closest = arr[0];
+        let minDiff = Math.abs(val - closest);
+        for (let i = 1; i < arr.length; ++i) {
+          const diff = Math.abs(val - arr[i]);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closest = arr[i];
+          }
+        }
+        return closest;
+      }
+
+      function roundDown(val, arr) {
+        let result = arr[0];
+        for (let i = 1; i < arr.length; ++i) {
+          if (arr[i] > val) break;
+          result = arr[i];
+        }
+        return result;
+      }
+
+      function rgbToHex(r, g, b) {
+        return (
+          "#" +
+          r.toString(16).padStart(2, "0") +
+          g.toString(16).padStart(2, "0") +
+          b.toString(16).padStart(2, "0")
+        ).toUpperCase();
+      }
+
+      function findClosestColor(r, g, b) {
+        let bestIdx = 0,
+          bestDist = Infinity;
+        for (let i = 0; i < reds.length; ++i) {
+          for (let j = 0; j < greens.length; ++j) {
+            for (let k = 0; k < blues.length; ++k) {
+              const dr = reds[i] - r;
+              const dg = greens[j] - g;
+              const db = blues[k] - b;
+              const dist = dr * dr + dg * dg + db * db;
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestIdx =
+                  i * greens.length * blues.length + j * blues.length + k;
+              }
+            }
+          }
+        }
+        // Compute the color index in the table
+        const ri = Math.floor(bestIdx / (greens.length * blues.length));
+        const gi = Math.floor(
+          (bestIdx % (greens.length * blues.length)) / blues.length
+        );
+        const bi = bestIdx % blues.length;
+        // Find the corresponding color index in the colors table
+        // The color index is: ri*32 + gi*4 + bi
+        const idx = ri * 32 + gi * 4 + bi;
+        return { idx, rgb: { r: reds[ri], g: greens[gi], b: blues[bi] } };
+      }
+
+      document.getElementById("calcBtn").onclick = function () {
+        const hex = document.getElementById("hexInput").value.trim();
+        const rgb = hexToRgb(hex);
+        const resultsDiv = document.getElementById("calcResults");
+        if (!rgb) {
+          resultsDiv.innerHTML = `<span style="color:#f44;">Invalid hex code.</span>`;
+          return;
+        }
+        // Intended
+        const intendedHex = rgbToHex(rgb.r, rgb.g, rgb.b);
+
+        // Default: round down each channel
+        const rDef = roundDown(rgb.r, reds);
+        const gDef = roundDown(rgb.g, greens);
+        const bDef = roundDown(rgb.b, blues);
+        const defaultHex = rgbToHex(rDef, gDef, bDef);
+
+        // Suggested: closest color in 3D space
+        const closest = findClosestColor(rgb.r, rgb.g, rgb.b);
+        const suggestedHex = rgbToHex(
+          closest.rgb.r,
+          closest.rgb.g,
+          closest.rgb.b
+        );
+
+        // Find color table index for default and suggested
+        function colorIndex(r, g, b) {
+          const ri = reds.indexOf(r);
+          const gi = greens.indexOf(g);
+          const bi = blues.indexOf(b);
+          if (ri === -1 || gi === -1 || bi === -1) return null;
+          return ri * 32 + gi * 4 + bi;
+        }
+        const defaultIdx = colorIndex(rDef, gDef, bDef);
+        const suggestedIdx = closest.idx;
+
+        resultsDiv.innerHTML = `
+        <div style="margin-bottom:10px; display: flex; align-items: center;">
+          <b style="width:90px;">Intended:</b>
+          <span style="display:inline-block;width:48px;height:32px;background:${intendedHex};border-radius:6px;border:1px solid #333;vertical-align:middle;margin-right:12px;"></span>
+          <span>${intendedHex}</span>
+        </div>
+        <div style="margin-bottom:10px; display: flex; align-items: center;">
+          <b style="width:90px;">Default:</b>
+          <span style="display:inline-block;width:48px;height:32px;background:${defaultHex};border-radius:6px;border:1px solid #333;vertical-align:middle;margin-right:12px;"></span>
+          <span>${defaultHex}</span>
+          ${
+            defaultIdx !== null && colors[defaultIdx]
+              ? `<span style="margin-left:8px;">Index: ${defaultIdx}, 16-bit: ${colors[defaultIdx][16]}</span>`
+              : ""
+          }
+        </div>
+        <div style="display: flex; align-items: center;">
+          <b style="width:90px;">Suggested:</b>
+          <span style="display:inline-block;width:48px;height:32px;background:${suggestedHex};border-radius:6px;border:1px solid #333;vertical-align:middle;margin-right:12px;"></span>
+          <span>${suggestedHex}</span>
+          ${
+            suggestedIdx !== null && colors[suggestedIdx]
+              ? `<span style="margin-left:8px;">Index: ${suggestedIdx}, 16-bit: ${colors[suggestedIdx][16]}</span>`
+              : ""
+          }
+        </div>
+      `;
       };
     </script>
   </body>

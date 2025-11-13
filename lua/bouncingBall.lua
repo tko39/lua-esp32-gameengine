@@ -22,7 +22,7 @@ while true do
         ball.dy = -ball.dy
     end
 
-    lge.draw_circle(ball.x, ball.y, ball.r, "#00aaff")
+    lge.draw_circle(ball.x, ball.y, ball.r, "#00B6FF")
     lge.draw_text(50, 50, "Bouncing Ball", "#ffffff")
 
     lge.present()

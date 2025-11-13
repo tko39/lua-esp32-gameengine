@@ -10,7 +10,7 @@ local show_delay = 30 -- frames per highlight
 local canvas_w, canvas_h = lge.get_canvas_size()
 local score = 0
 local game_over = false
-local colors = {'#ff0000', '#00ff00', '#4444ff', '#ffff00', '#ff00ff', '#00ffff'}
+local colors = {'#ff0000', '#00ff00', '#4A49FF', '#ffff00', '#ff00ff', '#00ffff'}
 
 function circles_overlap(x1, y1, r1, x2, y2, r2)
     local dx = x1 - x2

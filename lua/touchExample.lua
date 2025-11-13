@@ -22,7 +22,7 @@ function loop()
         if ball.r >= max_radius then
             table.remove(balls, i)
         else
-            lge.draw_circle(ball.x, ball.y, ball.r, '#00aaff')
+            lge.draw_circle(ball.x, ball.y, ball.r, '#00B6FF')
             i = i + 1
         end
     end

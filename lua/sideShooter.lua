@@ -52,19 +52,35 @@ local PU_KIND = {
 local FIXED_DT = 1 / 60
 local FRAME_DELAY_MS = 16
 
--- Colors
+---- Colors
+---- Intended colors
+-- local C = {
+--     WHITE = "#FFFFFF",
+--     GREY = "#C0C0C0",
+--     LIGHT = "#88CCFF",
+--     CYAN = "#00E5FF",
+--     BLUE = "#3A7FFF",
+--     GREEN = "#00FF7F",
+--     YELLOW = "#FFD447",
+--     ORANGE = "#FFA64D",
+--     RED = "#FF4D4D",
+--     DARKRED = "#C02020",
+--     PURPLE = "#BA68C8"
+-- }
+
+-- Closest 8-bit approximations
 local C = {
     WHITE = "#FFFFFF",
-    GREY = "#C0C0C0",
-    LIGHT = "#88CCFF",
-    CYAN = "#00E5FF",
-    BLUE = "#3A7FFF",
-    GREEN = "#00FF7F",
-    YELLOW = "#FFD447",
-    ORANGE = "#FFA64D",
-    RED = "#FF4D4D",
-    DARKRED = "#C02020",
-    PURPLE = "#BA68C8"
+    GREY = "#B5B6AD",
+    LIGHT = "#94DBFF",
+    CYAN = "#00DBFF",
+    BLUE = "#4A6DFF",
+    GREEN = "#00FF5A",
+    YELLOW = "#FFDB5A",
+    ORANGE = "#FFB65A",
+    RED = "#FF495A",
+    DARKRED = "#B52400",
+    PURPLE = "#B56DAD"
 }
 
 -- EASY MODE for testing
