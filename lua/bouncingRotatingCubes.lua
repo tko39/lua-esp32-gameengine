@@ -304,10 +304,6 @@ function Cube:draw_fast()
     local z_dist = self.z_distance
     local fov = self.fov
 
-    -- =======================================================
-    profiling_start("draw_fast:Transform")
-    -- =======================================================
-
     -- 1. Pre-calculate trig values
     local ax, ay, az = self.angle_x, self.angle_y, self.angle_z
     local cos_x, sin_x = m_cos(ax), m_sin(ax)
@@ -340,11 +336,6 @@ function Cube:draw_fast()
         tv[base + 2] = py * z_factor + y0
         tv[base + 3] = pz
     end
-
-    -- =======================================================
-    profiling_end("draw_fast:Transform")
-    profiling_start("draw_fast:Cull")
-    -- =======================================================
 
     -- 2) culling: fill visible_* pools (no allocations)
     local vis_count = 0
@@ -381,11 +372,6 @@ function Cube:draw_fast()
         end
     end
 
-    -- =======================================================
-    profiling_end("draw_fast:Cull")
-    profiling_start("draw_fast:Sort")
-    -- =======================================================
-
     -- 3) sort visible faces by z descending using insertion sort (fast for small N)
     if vis_count > 1 then
         for i = 2, vis_count do
@@ -412,11 +398,6 @@ function Cube:draw_fast()
         end
     end
 
-    -- =======================================================
-    profiling_end("draw_fast:Sort")
-    profiling_start("draw_fast:Render")
-    -- =======================================================
-
     -- 4) draw visible faces
     for i = 1, vis_count do
         local b1 = vis_b1[i]
@@ -426,7 +407,6 @@ function Cube:draw_fast()
     end
 
     -- =======================================================
-    profiling_end("draw_fast:Render")
     profiling_end("Cube:draw_fast")
     -- =======================================================
 end

@@ -1208,7 +1208,6 @@ function Cube:draw_fast()
   local y0 = self.y
   local z_dist = self.z_distance
   local fov = self.fov
-  profiling_start("draw_fast:Transform")
   local ax, ay, az = self.angle_x, self.angle_y, self.angle_z
   local cos_x, sin_x = m_cos(ax), m_sin(ax)
   local cos_y, sin_y = m_cos(ay), m_sin(ay)
@@ -1231,8 +1230,6 @@ function Cube:draw_fast()
     tv[base + 2] = py * z_factor + y0
     tv[base + 3] = pz
   end
-  profiling_end("draw_fast:Transform")
-  profiling_start("draw_fast:Cull")
   local vis_count = 0
   for f = 1, faces_count do
     local fbase = (f - 1) * 4
@@ -1262,8 +1259,6 @@ function Cube:draw_fast()
       vis_col[vis_count] = color
     end
   end
-  profiling_end("draw_fast:Cull")
-  profiling_start("draw_fast:Sort")
   if vis_count > 1 then
     for i = 2, vis_count do
       local zkey = vis_z[i]
@@ -1287,15 +1282,12 @@ function Cube:draw_fast()
       vis_col[j + 1] = kcol
     end
   end
-  profiling_end("draw_fast:Sort")
-  profiling_start("draw_fast:Render")
   for i = 1, vis_count do
     local b1 = vis_b1[i]
     local b2 = vis_b2[i]
     local b3 = vis_b3[i]
     lge_draw_triangle(tv[b1 + 1], tv[b1 + 2], tv[b2 + 1], tv[b2 + 2], tv[b3 + 1], tv[b3 + 2], vis_col[i])
   end
-  profiling_end("draw_fast:Render")
   profiling_end("Cube:draw_fast")
 end
 function Cube:draw()
