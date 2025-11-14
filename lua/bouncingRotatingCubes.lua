@@ -5,6 +5,58 @@
 ---------------------------------
 --  Cube "Class" Definition
 ---------------------------------
+local ENABLE_PROFILING = true
+
+if ENABLE_PROFILING then
+    local profile_data = {}
+    local last_profiling_print = 0
+
+    function profiling_start(name)
+        if not profile_data[name] then
+            profile_data[name] = {
+                sum = 0,
+                count = 0
+            }
+        end
+        profile_data[name].start = millis()
+    end
+
+    function profiling_end(name)
+        local now = millis()
+        local entry = profile_data[name]
+        if entry and entry.start then
+            local elapsed = now - entry.start
+            entry.sum = entry.sum + elapsed
+            entry.count = entry.count + 1
+            entry.start = nil
+        end
+    end
+
+    function print_profiling_results()
+        local now = millis()
+        if now - last_profiling_print >= 5000 then
+            last_profiling_print = now
+            for name, data in pairs(profile_data) do
+                local avg = data.sum / data.count
+                print(string.format("%-30s total: %8.2f ms, avg:%8.2f ms, calls: %10d", name, data.sum, avg, data.count))
+            end
+
+            -- Reset profiling data
+            profile_data = {}
+        end
+    end
+else
+    -- define empty no-op functions
+    function profiling_start(name)
+    end
+
+    function profiling_end(name)
+    end
+
+    function print_profiling_results()
+    end
+end
+
 local Cube = {}
 Cube.__index = Cube
 
@@ -58,6 +110,51 @@ local function random_color()
     local g = math.random(50, 255)
     local b = math.random(50, 255)
     return string.format("#%02x%02x%02x", r, g, b)
+end
+
+function Cube:prepare_fast_representation()
+    -- model_vertices -> flat array [x1,y1,z1,x2,y2,z2,...]
+    local mv = self.model_vertices
+    local n = #mv
+    local flat = {}
+    for i = 1, n do
+        local v = mv[i]
+        flat[(i - 1) * 3 + 1] = v.x
+        flat[(i - 1) * 3 + 2] = v.y
+        flat[(i - 1) * 3 + 3] = v.z
+    end
+    self.model_vertices_flat = flat
+    self.model_vertices_count = n
+
+    -- faces -> flat index list [i1,i2,i3, colorIndex, i1,i2,i3,colorIndex, ...]
+    -- assume face is {i1,i2,i3,color}
+    local faces = self.faces
+    local fc = #faces
+    local face_flat = {}
+    for f = 1, fc do
+        local face = faces[f]
+        face_flat[(f - 1) * 4 + 1] = face[1]
+        face_flat[(f - 1) * 4 + 2] = face[2]
+        face_flat[(f - 1) * 4 + 3] = face[3]
+        face_flat[(f - 1) * 4 + 4] = face[4] -- keep color as-is (could be index)
+    end
+    self.faces_flat = face_flat
+    self.faces_count = fc
+
+    -- preallocate transformed flat arrays (x,y,z per vertex)
+    local tv = {}
+    for i = 1, n * 3 do
+        tv[i] = 0
+    end
+    self.transformed_vertices_flat = tv
+
+    -- preallocate face-visible pools (numbers only)
+    -- z_pool, i1_pool, i2_pool, i3_pool, color_pool
+    self.visible_z = {}
+    self.visible_i1 = {}
+    self.visible_i2 = {}
+    self.visible_i3 = {}
+    self.visible_color = {}
 end
 
 -- Constructor for a new Cube
@@ -122,11 +219,24 @@ function Cube:new(x, y, dx, dy, radius, max_vel, restore_rate, fov, cam_dist)
     -- This matches self.r!
     --]]
 
+    -- Optimizations - lower allocation count:
+    self.transformed_vertices = {}
+    for i = 1, #Cube.model_vertices do
+        self.transformed_vertices[i] = {
+            x = 0,
+            y = 0,
+            z = 0
+        }
+    end
+
+    self:prepare_fast_representation()
+
     return self
 end
 
 -- Update the cube's internal state (position, rotation, velocity)
 function Cube:update()
+    profiling_start("Cube:update")
     -- 1. Update position
     self.x = self.x + self.dx
     self.y = self.y + self.dy
@@ -156,10 +266,158 @@ function Cube:update()
     local mag_dy = math.abs(self.dy) + (math.abs(self.orig_dy) - math.abs(self.dy)) * self.RESTORE_RATE
     self.dx = sign_dx * mag_dx
     self.dy = sign_dy * mag_dy
+    profiling_end("Cube:update")
+end
+
+-- Optimizations for draw function
+function Cube:draw_fast()
+    profiling_start("Cube:draw_fast")
+
+    -- locals / cache
+    local mv_flat = self.model_vertices_flat
+    local mv_count = self.model_vertices_count
+    local faces_flat = self.faces_flat
+    local faces_count = self.faces_count
+    local tv = self.transformed_vertices_flat -- flat: [x1,y1,z1, x2,y2,z2, ...]
+    local vis_z = self.visible_z
+    local vis_i1 = self.visible_i1
+    local vis_i2 = self.visible_i2
+    local vis_i3 = self.visible_i3
+    local vis_col = self.visible_color
+
+    local size = self.size
+    local x0 = self.x
+    local y0 = self.y
+    local z_dist = self.z_distance
+    local fov = self.fov
+
+    -- compute rotation matrix R = Rz * Ry * Rx  (row-major multiply)
+    local ax, ay, az = self.angle_x, self.angle_y, self.angle_z
+    local cosx, sinx = math.cos(ax), math.sin(ax)
+    local cosy, siny = math.cos(ay), math.sin(ay)
+    local cosz, sinz = math.cos(az), math.sin(az)
+
+    -- Combined rotation matrix (3x3)
+    -- First Rx, then Ry, then Rz (match your original order). Compute R = Rz * Ry * Rx
+    local r11 = cosz * (cosy) + (-sinz) * (0) -- simplified below
+    -- Instead of simplified guesses, compute full matrix:
+    local m11 = cosz * cosy
+    local m12 = cosz * (siny * sinx) - sinz * cosx
+    local m13 = cosz * (siny * cosx) + sinz * sinx
+
+    local m21 = sinz * cosy
+    local m22 = sinz * (siny * sinx) + cosz * cosx
+    local m23 = sinz * (siny * cosx) - cosz * sinx
+
+    local m31 = -siny
+    local m32 = cosy * sinx
+    local m33 = cosy * cosx
+
+    -- 1) transform all vertices into tv flat array: tv[(i-1)*3+1..3] = screen_x, screen_y, pz
+    for i = 1, mv_count do
+        local base = (i - 1) * 3
+        local vx = mv_flat[base + 1] * size
+        local vy = mv_flat[base + 2] * size
+        local vz = mv_flat[base + 3] * size
+
+        -- rotate: r * v
+        local rx = m11 * vx + m12 * vy + m13 * vz
+        local ry = m21 * vx + m22 * vy + m23 * vz
+        local rz = m31 * vx + m32 * vy + m33 * vz
+
+        local pz = rz + z_dist
+        local z_factor = fov / pz
+
+        tv[base + 1] = rx * z_factor + x0
+        tv[base + 2] = ry * z_factor + y0
+        tv[base + 3] = pz
+    end
+
+    -- 2) culling: fill visible_* pools (no allocations)
+    local vis_count = 0
+    for f = 1, faces_count do
+        local fbase = (f - 1) * 4
+        local i1 = faces_flat[fbase + 1]
+        local i2 = faces_flat[fbase + 2]
+        local i3 = faces_flat[fbase + 3]
+        local color = faces_flat[fbase + 4]
+
+        local b1 = (i1 - 1) * 3
+        local b2 = (i2 - 1) * 3
+        local b3 = (i3 - 1) * 3
+
+        local v1x = tv[b1 + 1];
+        local v1y = tv[b1 + 2];
+        local v1z = tv[b1 + 3]
+        local v2x = tv[b2 + 1];
+        local v2y = tv[b2 + 2];
+        local v2z = tv[b2 + 3]
+        local v3x = tv[b3 + 1];
+        local v3y = tv[b3 + 2];
+        local v3z = tv[b3 + 3]
+
+        -- compute 2D cross product for backface culling (screen-space)
+        local normal_z = (v2x - v1x) * (v3y - v1y) - (v2y - v1y) * (v3x - v1x)
+        if normal_z < 0 then
+            vis_count = vis_count + 1
+            vis_z[vis_count] = (v1z + v2z + v3z) * (1 / 3)
+            vis_i1[vis_count] = i1
+            vis_i2[vis_count] = i2
+            vis_i3[vis_count] = i3
+            vis_col[vis_count] = color
+        end
+    end
+
+    -- trim leftover values (optional: helps if counts shrink)
+    for i = vis_count + 1, #vis_z do
+        vis_z[i] = nil
+        vis_i1[i] = nil
+        vis_i2[i] = nil
+        vis_i3[i] = nil
+        vis_col[i] = nil
+    end
+
+    -- 3) sort visible faces by z descending using insertion sort (fast for small N)
+    if vis_count > 1 then
+        for i = 2, vis_count do
+            local zkey = vis_z[i]
+            local k1 = vis_i1[i]
+            local k2 = vis_i2[i]
+            local k3 = vis_i3[i]
+            local kcol = vis_col[i]
+
+            local j = i - 1
+            while j >= 1 and vis_z[j] < zkey do
+                vis_z[j + 1] = vis_z[j]
+                vis_i1[j + 1] = vis_i1[j]
+                vis_i2[j + 1] = vis_i2[j]
+                vis_i3[j + 1] = vis_i3[j]
+                vis_col[j + 1] = vis_col[j]
+                j = j - 1
+            end
+            vis_z[j + 1] = zkey
+            vis_i1[j + 1] = k1
+            vis_i2[j + 1] = k2
+            vis_i3[j + 1] = k3
+            vis_col[j + 1] = kcol
+        end
+    end
+
+    -- 4) draw visible faces
+    local draw_triangle = lge.draw_triangle
+    for i = 1, vis_count do
+        local b1 = (vis_i1[i] - 1) * 3
+        local b2 = (vis_i2[i] - 1) * 3
+        local b3 = (vis_i3[i] - 1) * 3
+        draw_triangle(tv[b1 + 1], tv[b1 + 2], tv[b2 + 1], tv[b2 + 2], tv[b3 + 1], tv[b3 + 2], vis_col[i])
+    end
+
+    profiling_end("Cube:draw_fast")
 end
 
 -- Draw the cube on screen (the 3D pipeline)
 function Cube:draw()
+    profiling_start("Cube:draw")
     local transformed_vertices = {}
     local faces_to_draw = {}
 
@@ -243,6 +501,8 @@ function Cube:draw()
         local f = faces_to_draw[i]
         lge.draw_triangle(f.v1.x, f.v1.y, f.v2.x, f.v2.y, f.v3.x, f.v3.y, f.color)
     end
+
+    profiling_end("Cube:draw")
 end
 
 ---------------------------------
@@ -297,6 +557,7 @@ end
 
 -- Function to handle wall collisions for a single object
 local function check_wall_collision(obj, w, h)
+    profiling_start("check_wall_collision")
     -- X-axis collision
     if (obj.x - obj.r < 0 and obj.dx < 0) then
         obj.dx = -obj.dx
@@ -313,10 +574,12 @@ local function check_wall_collision(obj, w, h)
         obj.dy = -obj.dy
         obj.y = h - obj.r
     end
+    profiling_end("check_wall_collision")
 end
 
 -- Function to handle elastic collision between two objects (o1 and o2)
 local function check_object_collision(o1, o2)
+    profiling_start("check_object_collision")
     local dx = o2.x - o1.x
     local dy = o2.y - o1.y
     local dist_sq = dx * dx + dy * dy
@@ -349,41 +612,79 @@ local function check_object_collision(o1, o2)
             o2.dy = vy2 - ny * impulse
         end
     end
+    profiling_end("check_object_collision")
 end
 
 ---------------------------------
 --  ⚙️ Main Program Loop
 ---------------------------------
 
-while true do
-    lge.clear_canvas()
+local function main_loop()
+    print("Starting Bouncing Rotating Cubes... Optimized main_loop")
+    -- Cache globals and functions locally (massive win in Lua)
+    local clear_canvas = lge.clear_canvas
+    local draw_text = lge.draw_text
+    local fps_func = lge.fps
+    local present = lge.present
+    local delay = lge.delay
 
-    -- 1. Update cube internal states
-    for _, cube in ipairs(cubes) do
-        cube:update()
-    end
+    local check_wall_collision = check_wall_collision
+    local check_object_collision = check_object_collision
 
-    -- 2. Check wall collisions
-    for _, cube in ipairs(cubes) do
-        check_wall_collision(cube, w, h)
-    end
+    local profiling_start = profiling_start
+    local profiling_end = profiling_end
+    local print_profiling_results = print_profiling_results
+    local cubes_ref = cubes -- fast local reference to the table
+    local n = #cubes_ref -- number of cubes
+    local ww = w
+    local hh = h
 
-    -- 3. Check all unique cube-to-cube collisions
-    for i = 1, #cubes do
-        for j = i + 1, #cubes do
-            check_object_collision(cubes[i], cubes[j])
+    -- Optimized main loop
+    while true do
+        clear_canvas()
+
+        profiling_start("main_loop")
+
+        -- update
+        for i = 1, n do
+            cubes_ref[i]:update()
         end
+
+        -- wall collision
+        for i = 1, n do
+            check_wall_collision(cubes_ref[i], ww, hh)
+        end
+
+        -------------------------------------------------------------------
+        -- 3. Cube-to-cube collision (unique pairs)
+        -------------------------------------------------------------------
+        for i = 1, n - 1 do
+            local ci = cubes_ref[i]
+            for j = i + 1, n do
+                check_object_collision(ci, cubes_ref[j])
+            end
+        end
+
+        -------------------------------------------------------------------
+        -- 4. Draw cubes
+        -------------------------------------------------------------------
+        for i = 1, n do
+            cubes_ref[i]:draw_fast()
+        end
+
+        -------------------------------------------------------------------
+        -- 5. Draw UI
+        -------------------------------------------------------------------
+        local fps = fps_func()
+        fps = math.floor(fps * 100 + 0.5) * 0.01
+        draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
+
+        profiling_end("main_loop")
+
+        print_profiling_results()
+        present()
+        delay(1)
     end
-
-    -- 4. Draw cubes
-    for _, cube in ipairs(cubes) do
-        cube:draw()
-    end
-
-    -- 5. Draw UI
-    local fps = math.floor(lge.fps() * 100 + 0.5) / 100
-    lge.draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
-
-    lge.present()
-    lge.delay(1) -- This is used to determine maximal FPS
 end
+
+main_loop()

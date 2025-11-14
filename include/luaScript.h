@@ -988,6 +988,48 @@ main_loop()
 )"
   ,
   R"(
+local ENABLE_PROFILING = true
+if ENABLE_PROFILING then
+  local profile_data = {}
+  local last_profiling_print = 0
+  function profiling_start(name)
+    if not profile_data[name] then
+      profile_data[name] = {
+        sum = 0,
+        count = 0
+      }
+    end
+    profile_data[name].start = millis()
+  end
+  function profiling_end(name)
+    local now = millis()
+    local entry = profile_data[name]
+    if entry and entry.start then
+      local elapsed = now - entry.start
+      entry.sum = entry.sum + elapsed
+      entry.count = entry.count + 1
+      entry.start = nil
+    end
+  end
+  function print_profiling_results()
+    local now = millis()
+    if now - last_profiling_print >= 5000 then
+      last_profiling_print = now
+      for name, data in pairs(profile_data) do
+        local avg = data.sum / data.count
+        print(string.format("%-30s total: %8.2f ms, avg:%8.2f ms, calls: %10d", name, data.sum, avg, data.count))
+      end
+      profile_data = {}
+    end
+  end
+else
+  function profiling_start(name)
+  end
+  function profiling_end(name)
+  end
+  function print_profiling_results()
+  end
+end
 local Cube = {}
 Cube.__index = Cube
 Cube.model_vertices = {{
@@ -1037,6 +1079,41 @@ local function random_color()
   local b = math.random(50, 255)
   return string.format("#%02x%02x%02x", r, g, b)
 end
+function Cube:prepare_fast_representation()
+  local mv = self.model_vertices
+  local n = #mv
+  local flat = {}
+  for i = 1, n do
+    local v = mv[i]
+    flat[(i - 1) * 3 + 1] = v.x
+    flat[(i - 1) * 3 + 2] = v.y
+    flat[(i - 1) * 3 + 3] = v.z
+  end
+  self.model_vertices_flat = flat
+  self.model_vertices_count = n
+  local faces = self.faces
+  local fc = #faces
+  local face_flat = {}
+  for f = 1, fc do
+    local face = faces[f]
+    face_flat[(f - 1) * 4 + 1] = face[1]
+    face_flat[(f - 1) * 4 + 2] = face[2]
+    face_flat[(f - 1) * 4 + 3] = face[3]
+    face_flat[(f - 1) * 4 + 4] = face[4] 
+  end
+  self.faces_flat = face_flat
+  self.faces_count = fc
+  local tv = {}
+  for i = 1, n * 3 do
+    tv[i] = 0
+  end
+  self.transformed_vertices_flat = tv
+  self.visible_z = {}
+  self.visible_i1 = {}
+  self.visible_i2 = {}
+  self.visible_i3 = {}
+  self.visible_color = {}
+end
 function Cube:new(x, y, dx, dy, radius, max_vel, restore_rate, fov, cam_dist)
   local self = setmetatable({}, Cube)
   self.x = x
@@ -1054,28 +1131,33 @@ function Cube:new(x, y, dx, dy, radius, max_vel, restore_rate, fov, cam_dist)
   self.d_angle_x = (math.random() - 0.5) * 0.05
   self.d_angle_y = (math.random() - 0.5) * 0.05
   self.d_angle_z = (math.random() - 0.5) * 0.05
-  local face_colors = {
-    random_color(), 
-    random_color(), 
-    random_color(), 
-    random_color(), 
-    random_color(), 
-    random_color() 
+  local face_colors = {random_color(), 
+  random_color(), 
+  random_color(), 
+  random_color(), 
+  random_color(), 
+  random_color() 
   }
-  self.faces = {
-    {1, 4, 3, face_colors[1]}, {1, 3, 2, face_colors[1]},
-    {5, 6, 7, face_colors[2]}, {5, 7, 8, face_colors[2]},
-    {1, 5, 8, face_colors[3]}, {1, 8, 4, face_colors[3]},
-    {2, 3, 7, face_colors[4]}, {2, 7, 6, face_colors[4]},
-    {4, 8, 7, face_colors[5]}, {4, 7, 3, face_colors[5]},
-    {1, 2, 6, face_colors[6]}, {1, 6, 5, face_colors[6]}
-  }
+  self.faces = {{1, 4, 3, face_colors[1]}, {1, 3, 2, face_colors[1]}, {5, 6, 7, face_colors[2]},
+          {5, 7, 8, face_colors[2]}, {1, 5, 8, face_colors[3]}, {1, 8, 4, face_colors[3]},
+          {2, 3, 7, face_colors[4]}, {2, 7, 6, face_colors[4]}, {4, 8, 7, face_colors[5]},
+          {4, 7, 3, face_colors[5]}, {1, 2, 6, face_colors[6]}, {1, 6, 5, face_colors[6]}}
   self.fov = fov
   self.z_distance = cam_dist 
   self.size = self.r * (self.z_distance / self.fov)
+  self.transformed_vertices = {}
+  for i = 1, #Cube.model_vertices do
+    self.transformed_vertices[i] = {
+      x = 0,
+      y = 0,
+      z = 0
+    }
+  end
+  self:prepare_fast_representation()
   return self
 end
 function Cube:update()
+  profiling_start("Cube:update")
   self.x = self.x + self.dx
   self.y = self.y + self.dy
   self.angle_x = self.angle_x + self.d_angle_x
@@ -1099,8 +1181,123 @@ function Cube:update()
   local mag_dy = math.abs(self.dy) + (math.abs(self.orig_dy) - math.abs(self.dy)) * self.RESTORE_RATE
   self.dx = sign_dx * mag_dx
   self.dy = sign_dy * mag_dy
+  profiling_end("Cube:update")
+end
+function Cube:draw_fast()
+  profiling_start("Cube:draw_fast")
+  local mv_flat = self.model_vertices_flat
+  local mv_count = self.model_vertices_count
+  local faces_flat = self.faces_flat
+  local faces_count = self.faces_count
+  local tv = self.transformed_vertices_flat 
+  local vis_z = self.visible_z
+  local vis_i1 = self.visible_i1
+  local vis_i2 = self.visible_i2
+  local vis_i3 = self.visible_i3
+  local vis_col = self.visible_color
+  local size = self.size
+  local x0 = self.x
+  local y0 = self.y
+  local z_dist = self.z_distance
+  local fov = self.fov
+  local ax, ay, az = self.angle_x, self.angle_y, self.angle_z
+  local cosx, sinx = math.cos(ax), math.sin(ax)
+  local cosy, siny = math.cos(ay), math.sin(ay)
+  local cosz, sinz = math.cos(az), math.sin(az)
+  local r11 = cosz * (cosy) + (-sinz) * (0) 
+  local m11 = cosz * cosy
+  local m12 = cosz * (siny * sinx) - sinz * cosx
+  local m13 = cosz * (siny * cosx) + sinz * sinx
+  local m21 = sinz * cosy
+  local m22 = sinz * (siny * sinx) + cosz * cosx
+  local m23 = sinz * (siny * cosx) - cosz * sinx
+  local m31 = -siny
+  local m32 = cosy * sinx
+  local m33 = cosy * cosx
+  for i = 1, mv_count do
+    local base = (i - 1) * 3
+    local vx = mv_flat[base + 1] * size
+    local vy = mv_flat[base + 2] * size
+    local vz = mv_flat[base + 3] * size
+    local rx = m11 * vx + m12 * vy + m13 * vz
+    local ry = m21 * vx + m22 * vy + m23 * vz
+    local rz = m31 * vx + m32 * vy + m33 * vz
+    local pz = rz + z_dist
+    local z_factor = fov / pz
+    tv[base + 1] = rx * z_factor + x0
+    tv[base + 2] = ry * z_factor + y0
+    tv[base + 3] = pz
+  end
+  local vis_count = 0
+  for f = 1, faces_count do
+    local fbase = (f - 1) * 4
+    local i1 = faces_flat[fbase + 1]
+    local i2 = faces_flat[fbase + 2]
+    local i3 = faces_flat[fbase + 3]
+    local color = faces_flat[fbase + 4]
+    local b1 = (i1 - 1) * 3
+    local b2 = (i2 - 1) * 3
+    local b3 = (i3 - 1) * 3
+    local v1x = tv[b1 + 1];
+    local v1y = tv[b1 + 2];
+    local v1z = tv[b1 + 3]
+    local v2x = tv[b2 + 1];
+    local v2y = tv[b2 + 2];
+    local v2z = tv[b2 + 3]
+    local v3x = tv[b3 + 1];
+    local v3y = tv[b3 + 2];
+    local v3z = tv[b3 + 3]
+    local normal_z = (v2x - v1x) * (v3y - v1y) - (v2y - v1y) * (v3x - v1x)
+    if normal_z < 0 then
+      vis_count = vis_count + 1
+      vis_z[vis_count] = (v1z + v2z + v3z) * (1 / 3)
+      vis_i1[vis_count] = i1
+      vis_i2[vis_count] = i2
+      vis_i3[vis_count] = i3
+      vis_col[vis_count] = color
+    end
+  end
+  for i = vis_count + 1, #vis_z do
+    vis_z[i] = nil
+    vis_i1[i] = nil
+    vis_i2[i] = nil
+    vis_i3[i] = nil
+    vis_col[i] = nil
+  end
+  if vis_count > 1 then
+    for i = 2, vis_count do
+      local zkey = vis_z[i]
+      local k1 = vis_i1[i]
+      local k2 = vis_i2[i]
+      local k3 = vis_i3[i]
+      local kcol = vis_col[i]
+      local j = i - 1
+      while j >= 1 and vis_z[j] < zkey do
+        vis_z[j + 1] = vis_z[j]
+        vis_i1[j + 1] = vis_i1[j]
+        vis_i2[j + 1] = vis_i2[j]
+        vis_i3[j + 1] = vis_i3[j]
+        vis_col[j + 1] = vis_col[j]
+        j = j - 1
+      end
+      vis_z[j + 1] = zkey
+      vis_i1[j + 1] = k1
+      vis_i2[j + 1] = k2
+      vis_i3[j + 1] = k3
+      vis_col[j + 1] = kcol
+    end
+  end
+  local draw_triangle = lge.draw_triangle
+  for i = 1, vis_count do
+    local b1 = (vis_i1[i] - 1) * 3
+    local b2 = (vis_i2[i] - 1) * 3
+    local b3 = (vis_i3[i] - 1) * 3
+    draw_triangle(tv[b1 + 1], tv[b1 + 2], tv[b2 + 1], tv[b2 + 2], tv[b3 + 1], tv[b3 + 2], vis_col[i])
+  end
+  profiling_end("Cube:draw_fast")
 end
 function Cube:draw()
+  profiling_start("Cube:draw")
   local transformed_vertices = {}
   local faces_to_draw = {}
   local cos_x = math.cos(self.angle_x)
@@ -1112,8 +1309,8 @@ function Cube:draw()
   for i = 1, #Cube.model_vertices do
     local v_model = Cube.model_vertices[i]
     local v = {
-      x = v_model.x * self.size, 
-      y = v_model.y * self.size, 
+      x = v_model.x * self.size,
+      y = v_model.y * self.size,
       z = v_model.z * self.size
     }
     local y1 = v.y * cos_x - v.z * sin_x
@@ -1125,7 +1322,7 @@ function Cube:draw()
     local pz = z2
     pz = pz + self.z_distance
     local z_factor = self.fov / pz
-    local screen_x = px * z_factor + self.x 
+    local screen_x = px * z_factor + self.x
     local screen_y = py * z_factor + self.y
     transformed_vertices[i] = {
       x = screen_x,
@@ -1145,7 +1342,9 @@ function Cube:draw()
       local avg_z = (v1.z + v2.z + v3.z) / 3
       table.insert(faces_to_draw, {
         z = avg_z,
-        v1 = v1, v2 = v2, v3 = v3,
+        v1 = v1,
+        v2 = v2,
+        v3 = v3,
         color = color
       })
     end
@@ -1155,19 +1354,15 @@ function Cube:draw()
   end)
   for i = 1, #faces_to_draw do
     local f = faces_to_draw[i]
-    lge.draw_triangle(
-      f.v1.x, f.v1.y,
-      f.v2.x, f.v2.y,
-      f.v3.x, f.v3.y,
-      f.color
-    )
+    lge.draw_triangle(f.v1.x, f.v1.y, f.v2.x, f.v2.y, f.v3.x, f.v3.y, f.color)
   end
+  profiling_end("Cube:draw")
 end
 local NUM_CUBES = 4
 local CUBE_MIN_R = 15 
 local CUBE_MAX_R = 30 
 local CUBE_MAX_V = 6
-local FOV = 200      
+local FOV = 200 
 local CAM_DISTANCE = 100 
 local MAX_VEL = 10 
 local RESTORE_RATE = 0.05 
@@ -1175,7 +1370,7 @@ local w, h = lge.get_canvas_size()
 if not cubes then
   cubes = {}
   for i = 1, NUM_CUBES do
-    local radius = math.random(CUBE_MIN_R, CUBE_MAX_R) 
+    local radius = math.random(CUBE_MIN_R, CUBE_MAX_R)
     local x = math.random(radius, w - radius)
     local y = math.random(radius, h - radius)
     local dx = math.random() * CUBE_MAX_V * (math.random() > 0.5 and 1 or -1)
@@ -1190,9 +1385,10 @@ if not cubes then
   end
 end
 local function check_wall_collision(obj, w, h)
+  profiling_start("check_wall_collision")
   if (obj.x - obj.r < 0 and obj.dx < 0) then
     obj.dx = -obj.dx
-    obj.x = obj.r 
+    obj.x = obj.r
   elseif (obj.x + obj.r > w and obj.dx > 0) then
     obj.dx = -obj.dx
     obj.x = w - obj.r
@@ -1204,8 +1400,10 @@ local function check_wall_collision(obj, w, h)
     obj.dy = -obj.dy
     obj.y = h - obj.r
   end
+  profiling_end("check_wall_collision")
 end
 local function check_object_collision(o1, o2)
+  profiling_start("check_object_collision")
   local dx = o2.x - o1.x
   local dy = o2.y - o1.y
   local dist_sq = dx * dx + dy * dy
@@ -1234,28 +1432,93 @@ local function check_object_collision(o1, o2)
       o2.dy = vy2 - ny * impulse
     end
   end
+  profiling_end("check_object_collision")
 end
-while true do
-  lge.clear_canvas()
-  for _, cube in ipairs(cubes) do
-    cube:update()
-  end
-  for _, cube in ipairs(cubes) do
-    check_wall_collision(cube, w, h)
-  end
-  for i = 1, #cubes do
-    for j = i + 1, #cubes do
-      check_object_collision(cubes[i], cubes[j])
+local function main_loop()
+  print("Starting Bouncing Rotating Cubes... Optimized main_loop")
+  local clear_canvas = lge.clear_canvas
+  local draw_text = lge.draw_text
+  local fps_func = lge.fps
+  local present = lge.present
+  local delay = lge.delay
+  local check_wall_collision = check_wall_collision
+  local check_object_collision = check_object_collision
+  local profiling_start = profiling_start
+  local profiling_end = profiling_end
+  local print_profiling_results = print_profiling_results
+  local cubes_ref = cubes 
+  local n = #cubes_ref 
+  local ww = w
+  local hh = h
+  while true do
+    clear_canvas()
+    profiling_start("main_loop")
+    for i = 1, n do
+      cubes_ref[i]:update()
     end
+    for i = 1, n do
+      check_wall_collision(cubes_ref[i], ww, hh)
+    end
+    for i = 1, n - 1 do
+      local ci = cubes_ref[i]
+      for j = i + 1, n do
+        check_object_collision(ci, cubes_ref[j])
+      end
+    end
+    for i = 1, n do
+      cubes_ref[i]:draw_fast()
+    end
+    local fps = fps_func()
+    fps = math.floor(fps * 100 + 0.5) * 0.01
+    draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
+    profiling_end("main_loop")
+    print_profiling_results()
+    present()
+    delay(1)
   end
-  for _, cube in ipairs(cubes) do
-    cube:draw()
-  end
-  local fps = math.floor(lge.fps() * 100 + 0.5) / 100
-  lge.draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
-  lge.present()
-  lge.delay(1) 
 end
+local function main_loop3()
+  local clear_canvas = lge.clear_canvas
+  local draw_text = lge.draw_text
+  local fps_func = lge.fps
+  local present = lge.present
+  local delay = lge.delay
+  local check_wall_collision = check_wall_collision
+  local check_object_collision = check_object_collision
+  local profiling_start = profiling_start
+  local profiling_end = profiling_end
+  local print_profiling_results = print_profiling_results
+  local cubes_ref = cubes 
+  local n = #cubes_ref 
+  local ww = w
+  local hh = h
+  while true do
+    clear_canvas()
+    profiling_start("main_loop")
+    for i = 1, n do
+      cubes_ref[i]:update()
+    end
+    for i = 1, n do
+      check_wall_collision(cubes_ref[i], ww, hh)
+    end
+    for i = 1, n - 1 do
+      local ci = cubes_ref[i]
+      for j = i + 1, n do
+        check_object_collision(ci, cubes_ref[j])
+      end
+    end
+    for i = 1, n do
+      cubes_ref[i]:draw_fast()
+    end
+    local fps = math.floor(fps_func() * 100 + 0.5) / 100
+    draw_text(5, 5, "FPS: " .. fps, "#FFFFFF")
+    profiling_end("main_loop")
+    print_profiling_results()
+    present()
+    delay(1) 
+  end
+end
+main_loop()
 )"
   ,
   nullptr
