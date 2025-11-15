@@ -366,7 +366,7 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_create_3d_instance, 1);
     lua_setfield(L_, -2, "create_3d_instance");
 
-    // draw_3d_instance(instance_id, cx, cy, radius, ax, ay, az)
+    // draw_3d_instance(instance_id, wx, wy, wz, radius, ax, ay, az)
     lua_pushlightuserdata(L_, self);
     lua_pushcclosure(L_, lge_draw_3d_instance, 1);
     lua_setfield(L_, -2, "draw_3d_instance");
@@ -970,13 +970,16 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
     if (!self || !self->spr_)
         return 0;
 
+    // New Lua signature:
+    // draw_3d_instance(instance_id, wx, wy, wz, radius, ax, ay, az)
     int instanceId = (int)luaL_checkinteger(L, 1);
-    float cx = (float)luaL_checknumber(L, 2);
-    float cy = (float)luaL_checknumber(L, 3);
-    float radius = (float)luaL_checknumber(L, 4);
-    float ax = (float)luaL_checknumber(L, 5);
-    float ay = (float)luaL_checknumber(L, 6);
-    float az = (float)luaL_checknumber(L, 7);
+    float wx = (float)luaL_checknumber(L, 2);     // world x
+    float wy = (float)luaL_checknumber(L, 3);     // world y
+    float wz = (float)luaL_checknumber(L, 4);     // world z (distance from camera)
+    float radius = (float)luaL_checknumber(L, 5); // desired approx 2D radius at depth wz
+    float ax = (float)luaL_checknumber(L, 6);
+    float ay = (float)luaL_checknumber(L, 7);
+    float az = (float)luaL_checknumber(L, 8);
 
     if (instanceId <= 0 || instanceId > (int)self->instances3d_.size())
         return 0;
@@ -997,7 +1000,9 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
         return 0;
 
     // Ensure scratch buffers are large enough
-    self->tempVertices3d_.resize(srcVerts.size());
+    // We now store 6 floats per vertex:
+    // [0]=camX, [1]=camY, [2]=camZ, [3]=screenX, [4]=screenY, [5]=unused
+    self->tempVertices3d_.resize(vertCount * 6);
     self->visibleZ_.resize(faceCount);
     self->visibleB1_.resize(faceCount);
     self->visibleB2_.resize(faceCount);
@@ -1005,10 +1010,14 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
     self->visibleColor_.resize(faceCount);
 
     const float fov = self->fov3d_;
-    const float zDist = self->camDist3d_;
 
-    // Scale from desired 2D radius to 3D model size
-    float scale = radius * (zDist / fov);
+    // Prevent division by zero / behind-camera placement
+    if (wz < 1.0f)
+        wz = 1.0f;
+
+    // Approximate scale so that projected radius ~ 'radius' at depth ~ wz
+    // visual_radius ≈ scale * (fov / wz)  =>  scale ≈ radius * (wz / fov)
+    float baseScale = radius * (wz / fov);
 
     // Precompute trig
     float cos_x = std::cos(ax);
@@ -1018,37 +1027,55 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
     float cos_z = std::cos(az);
     float sin_z = std::sin(az);
 
-    // 1) Transform all vertices
+    // Projection center = center of sprite
+    float centerX = self->spr_->width() * 0.5f;
+    float centerY = self->spr_->height() * 0.5f;
+
+    // 1) Transform all vertices: model -> scaled -> rotated -> world -> camera -> screen
     for (size_t i = 0; i < vertCount; ++i)
     {
-        size_t base = i * 3;
+        size_t srcBase = i * 3;
+        size_t tmpBase = i * 6;
 
-        float vx = srcVerts[base + 0] * scale;
-        float vy = srcVerts[base + 1] * scale;
-        float vz = srcVerts[base + 2] * scale;
+        // Model-space
+        float vx = srcVerts[srcBase + 0] * baseScale;
+        float vy = srcVerts[srcBase + 1] * baseScale;
+        float vz = srcVerts[srcBase + 2] * baseScale;
 
-        // Rotate: Rx, then Ry, then Rz (same as Lua)
+        // Rotate: Rx, then Ry, then Rz (same order as your Lua pipeline)
         float y1 = vy * cos_x - vz * sin_x;
         float z1 = vy * sin_x + vz * cos_x;
-        float x2 = vx * cos_y + z1 * sin_y;
-        float z2 = -vx * sin_y + z1 * cos_y;
-        float px = x2 * cos_z - y1 * sin_z;
-        float py = x2 * sin_z + y1 * cos_z;
-        float pz = z2;
+        float x1 = vx;
 
-        // Translate along Z and project
-        pz += zDist;
-        if (pz < 0.001f)
-            pz = 0.001f;
+        float x2 = x1 * cos_y + z1 * sin_y;
+        float z2 = -x1 * sin_y + z1 * cos_y;
+        float y2 = y1;
 
-        float z_factor = fov / pz;
+        float x3 = x2 * cos_z - y2 * sin_z;
+        float y3 = x2 * sin_z + y2 * cos_z;
+        float z3 = z2;
 
-        float sx = px * z_factor + cx;
-        float sy = py * z_factor + cy;
+        // World space: translate by (wx, wy, wz)
+        float camX = x3 + wx;
+        float camY = y3 + wy;
+        float camZ = z3 + wz; // camera at origin, looking along +Z
 
-        self->tempVertices3d_[base + 0] = sx;
-        self->tempVertices3d_[base + 1] = sy;
-        self->tempVertices3d_[base + 2] = pz; // store depth
+        if (camZ < 0.001f)
+            camZ = 0.001f;
+
+        float z_factor = fov / camZ;
+
+        float sx = camX * z_factor + centerX;
+        float sy = camY * z_factor + centerY;
+
+        // Store camera-space coords
+        self->tempVertices3d_[tmpBase + 0] = camX;
+        self->tempVertices3d_[tmpBase + 1] = camY;
+        self->tempVertices3d_[tmpBase + 2] = camZ;
+
+        // Store screen-space coords
+        self->tempVertices3d_[tmpBase + 3] = sx;
+        self->tempVertices3d_[tmpBase + 4] = sy;
     }
 
     // 2) Back-face culling + visible face pool
@@ -1060,98 +1087,100 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
         int i2 = indices[f * 3 + 1];
         int i3 = indices[f * 3 + 2];
 
-        int b1 = i1 * 3;
-        int b2 = i2 * 3;
-        int b3 = i3 * 3;
+        int b1 = i1 * 6;
+        int b2 = i2 * 6;
+        int b3 = i3 * 6;
 
-        float v1x = self->tempVertices3d_[b1 + 0];
-        float v1y = self->tempVertices3d_[b1 + 1];
-        float v1z = self->tempVertices3d_[b1 + 2];
+        float sx1 = self->tempVertices3d_[b1 + 3];
+        float sy1 = self->tempVertices3d_[b1 + 4];
+        float sz1 = self->tempVertices3d_[b1 + 2];
 
-        float v2x = self->tempVertices3d_[b2 + 0];
-        float v2y = self->tempVertices3d_[b2 + 1];
-        float v2z = self->tempVertices3d_[b2 + 2];
+        float sx2 = self->tempVertices3d_[b2 + 3];
+        float sy2 = self->tempVertices3d_[b2 + 4];
+        float sz2 = self->tempVertices3d_[b2 + 2];
 
-        float v3x = self->tempVertices3d_[b3 + 0];
-        float v3y = self->tempVertices3d_[b3 + 1];
-        float v3z = self->tempVertices3d_[b3 + 2];
+        float sx3 = self->tempVertices3d_[b3 + 3];
+        float sy3 = self->tempVertices3d_[b3 + 4];
+        float sz3 = self->tempVertices3d_[b3 + 2];
 
-        float normal_z = (v2x - v1x) * (v3y - v1y) - (v2y - v1y) * (v3x - v1x);
-
-        if (normal_z < 0.0f)
+        // screen-space 2D cross product for back-face culling
+        float normal_z = (sx2 - sx1) * (sy3 - sy1) - (sy2 - sy1) * (sx3 - sx1);
+        if (normal_z >= 0.0f)
         {
-            self->visibleZ_[visCount] = (v1z + v2z + v3z) * (1.0f / 3.0f);
-            self->visibleB1_[visCount] = b1;
-            self->visibleB2_[visCount] = b2;
-            self->visibleB3_[visCount] = b3;
+            continue; // back face
+        }
 
-            uint16_t col = TFT_WHITE;
-            if (f < inst.faceColors565.size())
-                col = inst.faceColors565[f];
+        float avgZ = (sz1 + sz2 + sz3) * (1.0f / 3.0f);
 
-            uint16_t finalCol = col;
+        uint16_t col = TFT_WHITE;
+        if (f < inst.faceColors565.size())
+            col = inst.faceColors565[f];
 
-            if (self->lightEnabled_)
+        uint16_t finalCol = col;
+
+        if (self->lightEnabled_)
+        {
+            // Use camera-space positions directly for face normal
+            float cx1 = self->tempVertices3d_[b1 + 0];
+            float cy1 = self->tempVertices3d_[b1 + 1];
+            float cz1 = self->tempVertices3d_[b1 + 2];
+
+            float cx2 = self->tempVertices3d_[b2 + 0];
+            float cy2 = self->tempVertices3d_[b2 + 1];
+            float cz2 = self->tempVertices3d_[b2 + 2];
+
+            float cx3 = self->tempVertices3d_[b3 + 0];
+            float cy3 = self->tempVertices3d_[b3 + 1];
+            float cz3 = self->tempVertices3d_[b3 + 2];
+
+            // e1 = p2 - p1, e2 = p3 - p1
+            float e1x = cx2 - cx1;
+            float e1y = cy2 - cy1;
+            float e1z = cz2 - cz1;
+
+            float e2x = cx3 - cx1;
+            float e2y = cy3 - cy1;
+            float e2z = cz3 - cz1;
+
+            // normal = e1 x e2
+            float nx = e1y * e2z - e1z * e2y;
+            float ny = e1z * e2x - e1x * e2z;
+            float nz = e1x * e2y - e1y * e2x;
+
+            float nlen = std::sqrt(nx * nx + ny * ny + nz * nz);
+            float ndotl = 0.0f;
+            if (nlen > 1e-4f)
             {
-                // reconstruct camera-space positions from screen coords
-                auto reconstruct = [&](int base)
-                {
-                    float sx = self->tempVertices3d_[base + 0];
-                    float sy = self->tempVertices3d_[base + 1];
-                    float pz = self->tempVertices3d_[base + 2];
-                    if (pz < 1e-4f)
-                        pz = 1e-4f;
-                    float px = (sx - cx) * (pz / fov); // inverse of projection
-                    float py = (sy - cy) * (pz / fov);
-                    return std::array<float, 3>{px, py, pz};
-                };
+                nx /= nlen;
+                ny /= nlen;
+                nz /= nlen;
 
-                auto p1 = reconstruct(b1);
-                auto p2 = reconstruct(b2);
-                auto p3 = reconstruct(b3);
-
-                // e1 = p2 - p1, e2 = p3 - p1
-                float e1x = p2[0] - p1[0];
-                float e1y = p2[1] - p1[1];
-                float e1z = p2[2] - p1[2];
-
-                float e2x = p3[0] - p1[0];
-                float e2y = p3[1] - p1[1];
-                float e2z = p3[2] - p1[2];
-
-                // normal = e1 x e2
-                float nx = e1y * e2z - e1z * e2y;
-                float ny = e1z * e2x - e1x * e2z;
-                float nz = e1x * e2y - e1y * e2x;
-
-                float nlen = std::sqrt(nx * nx + ny * ny + nz * nz);
-                float ndotl = 0.0f;
-                if (nlen > 1e-4f)
-                {
-                    nx /= nlen;
-                    ny /= nlen;
-                    nz /= nlen;
-                    ndotl = nx * self->lightDirX_ +
-                            ny * self->lightDirY_ +
-                            nz * self->lightDirZ_;
-                }
-
-                if (ndotl < 0.0f)
-                    ndotl = 0.0f; // Lambert, no negative light
-
-                float brightness = self->lightAmbient_ + self->lightDiffuse_ * ndotl;
-                if (brightness > 1.0f)
-                    brightness = 1.0f;
-
-                finalCol = scaleColor565(col, brightness);
+                ndotl = nx * self->lightDirX_ +
+                        ny * self->lightDirY_ +
+                        nz * self->lightDirZ_;
             }
 
-            self->visibleColor_[visCount] = finalCol;
-            ++visCount;
+            if (ndotl < 0.0f)
+                ndotl = 0.0f; // Lambert – no negative light
+
+            float brightness = self->lightAmbient_ + self->lightDiffuse_ * ndotl;
+            if (brightness > 1.0f)
+                brightness = 1.0f;
+            if (brightness < 0.0f)
+                brightness = 0.0f;
+
+            finalCol = scaleColor565(col, brightness);
         }
+
+        self->visibleZ_[visCount] = avgZ;
+        self->visibleB1_[visCount] = b1;
+        self->visibleB2_[visCount] = b2;
+        self->visibleB3_[visCount] = b3;
+        self->visibleColor_[visCount] = finalCol;
+        ++visCount;
     }
 
-    // 3) Sort visible faces by Z (descending) – insertion sort (few faces)
+    // 3) Sort visible faces by Z (descending) – insertion sort (few faces, cheap)
     for (int i = 1; i < visCount; ++i)
     {
         float zkey = self->visibleZ_[i];
@@ -1184,12 +1213,12 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
         int b2 = self->visibleB2_[i];
         int b3 = self->visibleB3_[i];
 
-        int x0 = (int)self->tempVertices3d_[b1 + 0];
-        int y0 = (int)self->tempVertices3d_[b1 + 1];
-        int x1 = (int)self->tempVertices3d_[b2 + 0];
-        int y1 = (int)self->tempVertices3d_[b2 + 1];
-        int x2 = (int)self->tempVertices3d_[b3 + 0];
-        int y2 = (int)self->tempVertices3d_[b3 + 1];
+        int x0 = (int)self->tempVertices3d_[b1 + 3];
+        int y0 = (int)self->tempVertices3d_[b1 + 4];
+        int x1 = (int)self->tempVertices3d_[b2 + 3];
+        int y1 = (int)self->tempVertices3d_[b2 + 4];
+        int x2 = (int)self->tempVertices3d_[b3 + 3];
+        int y2 = (int)self->tempVertices3d_[b3 + 4];
 
         uint16_t color = self->visibleColor_[i];
 
