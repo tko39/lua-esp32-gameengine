@@ -67,7 +67,56 @@ private:
     static int lge_get_mouse_click(lua_State *L);
     static int lge_get_mouse_position(lua_State *L);
     static int lge_is_key_down(lua_State *L);
+
+    // 3D functions
+    static int lge_set_3d_camera(lua_State *L);
+    static int lge_set_3d_light(lua_State *L); // Avoid using lighting with blue colors due to 3-3-2 color representation limitations
+    static int lge_create_3d_model(lua_State *L);
+    static int lge_create_3d_instance(lua_State *L);
+    static int lge_draw_3d_instance(lua_State *L);
+
+    struct Model3D
+    {
+        // flat [x1,y1,z1, x2,y2,z2, ...]
+        std::vector<float> vertices;
+        // 0-based vertex indices, triplets per triangle
+        std::vector<uint16_t> indices;
+    };
+
+    struct Instance3D
+    {
+        int modelIndex;                      // index into models3d_
+        std::vector<uint16_t> faceColors565; // one color per triangle
+    };
+
+    // Camera / projection parameters
+    float fov3d_ = 200.0f;
+    float camDist3d_ = 100.0f;
+
+    // Registered models & instances
+    std::vector<Model3D> models3d_;
+    std::vector<Instance3D> instances3d_;
+
+    // Scratch buffers reused every draw (avoid allocations in the hot path)
+    std::vector<float> tempVertices3d_;
+    std::vector<float> visibleZ_;
+    std::vector<int> visibleB1_;
+    std::vector<int> visibleB2_;
+    std::vector<int> visibleB3_;
+    std::vector<uint16_t> visibleColor_;
+
+    // lighting:
+    bool lightEnabled_ = false;
+    float lightDirX_ = 0.0f;
+    float lightDirY_ = 0.0f;
+    float lightDirZ_ = -1.0f;   // light coming from camera by default
+    float lightAmbient_ = 0.2f; // 0..1
+    float lightDiffuse_ = 0.8f; // 0..1
+
+    // End 3D
+
     static uint16_t parseHexColor(const char *hex);
+    static uint16_t scaleColor565(uint16_t c, float factor);
 
     std::vector<DirtyRect> current_dirty_rects_;
     std::vector<DirtyRect> previous_dirty_rects_;

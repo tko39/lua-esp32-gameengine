@@ -14,16 +14,17 @@ extern "C"
 #include "lualib.h"
 #endif
 
-#include "luaDriver.hpp"
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <cstdio>
+#include <cmath>
 #include <algorithm>
 
 #include "luaScript.h"
 #include <memory>
 #include <SPIFFS.h>
 #include "flags.h"
+#include "luaDriver.hpp"
 
 // C-style Lua hooks (need C linkage compatible signatures)
 static int luaLedControl(lua_State *L);
@@ -35,7 +36,7 @@ static int luaGetSystemInfo(lua_State *L);
 
 // Implement LuaDriver methods
 LuaDriver::LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts)
-    : L_(nullptr), led_status_(0), tft_(tft), ts_(ts), spr_(nullptr)
+    : L_(nullptr), led_status_(0), tft_(tft), ts_(ts), spr_(nullptr), fov3d_(200.0f), camDist3d_(100.0f)
 {
 }
 
@@ -348,6 +349,33 @@ void LuaDriver::registerLgeModule()
     lua_pushcclosure(L_, lge_is_key_down, 1);
     lua_setfield(L_, -2, "is_key_down");
 
+    // --- 3D API ---
+
+    // set_3d_camera(fov, cam_distance)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_set_3d_camera, 1);
+    lua_setfield(L_, -2, "set_3d_camera");
+
+    // create_3d_model(vertices_flat, faces_flat)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_create_3d_model, 1);
+    lua_setfield(L_, -2, "create_3d_model");
+
+    // create_3d_instance(model_id, tri_colors)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_create_3d_instance, 1);
+    lua_setfield(L_, -2, "create_3d_instance");
+
+    // draw_3d_instance(instance_id, cx, cy, radius, ax, ay, az)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_draw_3d_instance, 1);
+    lua_setfield(L_, -2, "draw_3d_instance");
+
+    // set_3d_light(dx, dy, dz, ambient, diffuse)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_set_3d_light, 1);
+    lua_setfield(L_, -2, "set_3d_light");
+
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
 }
@@ -446,6 +474,31 @@ uint16_t LuaDriver::parseHexColor(const char *hex)
     int r = hexVal(hex[1]) * 16 + hexVal(hex[2]);
     int g = hexVal(hex[3]) * 16 + hexVal(hex[4]);
     int b = hexVal(hex[5]) * 16 + hexVal(hex[6]);
+
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+uint16_t LuaDriver::scaleColor565(uint16_t c, float factor)
+{
+    if (factor < 0.0f)
+        factor = 0.0f;
+    if (factor > 1.0f)
+        factor = 1.0f;
+
+    // Extract RGB 5/6/5
+    uint8_t r5 = (c >> 11) & 0x1F;
+    uint8_t g6 = (c >> 5) & 0x3F;
+    uint8_t b5 = c & 0x1F;
+
+    // Expand to 8-bit
+    int r = (r5 * 255 + 15) / 31;
+    int g = (g6 * 255 + 31) / 63;
+    int b = (b5 * 255 + 15) / 31;
+
+    // Scale
+    r = (uint8_t)std::min(255.0f, r * factor);
+    g = (uint8_t)std::min(255.0f, g * factor);
+    b = (uint8_t)std::min(255.0f, b * factor);
 
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
@@ -792,4 +845,406 @@ int LuaDriver::lge_is_key_down(lua_State *L)
         lua_pushboolean(L, false);
         return 1;
     }
+}
+
+int LuaDriver::lge_set_3d_camera(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    self->fov3d_ = (float)luaL_checknumber(L, 1);
+    self->camDist3d_ = (float)luaL_checknumber(L, 2);
+
+    return 0;
+}
+
+int LuaDriver::lge_create_3d_model(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    luaL_checktype(L, 1, LUA_TTABLE); // vertices_flat
+    luaL_checktype(L, 2, LUA_TTABLE); // faces_flat
+
+    Model3D model;
+
+    // --- Read vertices ---
+    size_t vlen = lua_rawlen(L, 1);
+    if (vlen % 3 != 0)
+    {
+        Serial.printf("lge.create_3d_model: vertex array length %u is not multiple of 3\n", (unsigned)vlen);
+    }
+
+    model.vertices.resize(vlen);
+    for (size_t i = 0; i < vlen; ++i)
+    {
+        lua_rawgeti(L, 1, (int)(i + 1));
+        model.vertices[i] = (float)luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+    }
+
+    // --- Read faces (indices) ---
+    size_t flen = lua_rawlen(L, 2);
+    if (flen % 3 != 0)
+    {
+        Serial.printf("lge.create_3d_model: face index array length %u is not multiple of 3\n", (unsigned)flen);
+    }
+
+    model.indices.resize(flen);
+    for (size_t i = 0; i < flen; ++i)
+    {
+        lua_rawgeti(L, 2, (int)(i + 1));
+        int idx1based = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+
+        if (idx1based <= 0)
+        {
+            idx1based = 1;
+        }
+        model.indices[i] = (uint16_t)(idx1based - 1); // convert to 0-based
+    }
+
+    self->models3d_.push_back(std::move(model));
+    int modelId = (int)self->models3d_.size(); // 1-based handle for Lua
+
+    lua_pushinteger(L, modelId);
+    return 1;
+}
+
+int LuaDriver::lge_create_3d_instance(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    int modelId = (int)luaL_checkinteger(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE); // tri_colors
+
+    if (modelId <= 0 || modelId > (int)self->models3d_.size())
+    {
+        return luaL_error(L, "lge.create_3d_instance: invalid model id %d", modelId);
+    }
+
+    Instance3D instance;
+    instance.modelIndex = modelId - 1;
+
+    const Model3D &model = self->models3d_[instance.modelIndex];
+    size_t faceCount = model.indices.size() / 3;
+
+    size_t clen = lua_rawlen(L, 2);
+    if (clen < faceCount)
+    {
+        Serial.printf("lge.create_3d_instance: got %u colors for %u faces, padding with white\n",
+                      (unsigned)clen, (unsigned)faceCount);
+    }
+
+    instance.faceColors565.resize(faceCount);
+
+    for (size_t i = 0; i < faceCount; ++i)
+    {
+        uint16_t color565 = TFT_WHITE;
+
+        if (i < clen)
+        {
+            lua_rawgeti(L, 2, (int)(i + 1));
+            const char *hex = luaL_checkstring(L, -1);
+            lua_pop(L, 1);
+            color565 = self->parseHexColor(hex);
+        }
+
+        instance.faceColors565[i] = color565;
+    }
+
+    self->instances3d_.push_back(std::move(instance));
+    int instanceId = (int)self->instances3d_.size(); // 1-based for Lua
+
+    lua_pushinteger(L, instanceId);
+    return 1;
+}
+
+int LuaDriver::lge_draw_3d_instance(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self || !self->spr_)
+        return 0;
+
+    int instanceId = (int)luaL_checkinteger(L, 1);
+    float cx = (float)luaL_checknumber(L, 2);
+    float cy = (float)luaL_checknumber(L, 3);
+    float radius = (float)luaL_checknumber(L, 4);
+    float ax = (float)luaL_checknumber(L, 5);
+    float ay = (float)luaL_checknumber(L, 6);
+    float az = (float)luaL_checknumber(L, 7);
+
+    if (instanceId <= 0 || instanceId > (int)self->instances3d_.size())
+        return 0;
+
+    Instance3D &inst = self->instances3d_[instanceId - 1];
+    if (inst.modelIndex < 0 || inst.modelIndex >= (int)self->models3d_.size())
+        return 0;
+
+    Model3D &model = self->models3d_[inst.modelIndex];
+
+    const auto &srcVerts = model.vertices;
+    const auto &indices = model.indices;
+
+    size_t vertCount = srcVerts.size() / 3;
+    size_t faceCount = indices.size() / 3;
+
+    if (vertCount == 0 || faceCount == 0)
+        return 0;
+
+    // Ensure scratch buffers are large enough
+    self->tempVertices3d_.resize(srcVerts.size());
+    self->visibleZ_.resize(faceCount);
+    self->visibleB1_.resize(faceCount);
+    self->visibleB2_.resize(faceCount);
+    self->visibleB3_.resize(faceCount);
+    self->visibleColor_.resize(faceCount);
+
+    const float fov = self->fov3d_;
+    const float zDist = self->camDist3d_;
+
+    // Scale from desired 2D radius to 3D model size
+    float scale = radius * (zDist / fov);
+
+    // Precompute trig
+    float cos_x = std::cos(ax);
+    float sin_x = std::sin(ax);
+    float cos_y = std::cos(ay);
+    float sin_y = std::sin(ay);
+    float cos_z = std::cos(az);
+    float sin_z = std::sin(az);
+
+    // 1) Transform all vertices
+    for (size_t i = 0; i < vertCount; ++i)
+    {
+        size_t base = i * 3;
+
+        float vx = srcVerts[base + 0] * scale;
+        float vy = srcVerts[base + 1] * scale;
+        float vz = srcVerts[base + 2] * scale;
+
+        // Rotate: Rx, then Ry, then Rz (same as Lua)
+        float y1 = vy * cos_x - vz * sin_x;
+        float z1 = vy * sin_x + vz * cos_x;
+        float x2 = vx * cos_y + z1 * sin_y;
+        float z2 = -vx * sin_y + z1 * cos_y;
+        float px = x2 * cos_z - y1 * sin_z;
+        float py = x2 * sin_z + y1 * cos_z;
+        float pz = z2;
+
+        // Translate along Z and project
+        pz += zDist;
+        if (pz < 0.001f)
+            pz = 0.001f;
+
+        float z_factor = fov / pz;
+
+        float sx = px * z_factor + cx;
+        float sy = py * z_factor + cy;
+
+        self->tempVertices3d_[base + 0] = sx;
+        self->tempVertices3d_[base + 1] = sy;
+        self->tempVertices3d_[base + 2] = pz; // store depth
+    }
+
+    // 2) Back-face culling + visible face pool
+    int visCount = 0;
+
+    for (size_t f = 0; f < faceCount; ++f)
+    {
+        int i1 = indices[f * 3 + 0];
+        int i2 = indices[f * 3 + 1];
+        int i3 = indices[f * 3 + 2];
+
+        int b1 = i1 * 3;
+        int b2 = i2 * 3;
+        int b3 = i3 * 3;
+
+        float v1x = self->tempVertices3d_[b1 + 0];
+        float v1y = self->tempVertices3d_[b1 + 1];
+        float v1z = self->tempVertices3d_[b1 + 2];
+
+        float v2x = self->tempVertices3d_[b2 + 0];
+        float v2y = self->tempVertices3d_[b2 + 1];
+        float v2z = self->tempVertices3d_[b2 + 2];
+
+        float v3x = self->tempVertices3d_[b3 + 0];
+        float v3y = self->tempVertices3d_[b3 + 1];
+        float v3z = self->tempVertices3d_[b3 + 2];
+
+        float normal_z = (v2x - v1x) * (v3y - v1y) - (v2y - v1y) * (v3x - v1x);
+
+        if (normal_z < 0.0f)
+        {
+            self->visibleZ_[visCount] = (v1z + v2z + v3z) * (1.0f / 3.0f);
+            self->visibleB1_[visCount] = b1;
+            self->visibleB2_[visCount] = b2;
+            self->visibleB3_[visCount] = b3;
+
+            uint16_t col = TFT_WHITE;
+            if (f < inst.faceColors565.size())
+                col = inst.faceColors565[f];
+
+            uint16_t finalCol = col;
+
+            if (self->lightEnabled_)
+            {
+                // reconstruct camera-space positions from screen coords
+                auto reconstruct = [&](int base)
+                {
+                    float sx = self->tempVertices3d_[base + 0];
+                    float sy = self->tempVertices3d_[base + 1];
+                    float pz = self->tempVertices3d_[base + 2];
+                    if (pz < 1e-4f)
+                        pz = 1e-4f;
+                    float px = (sx - cx) * (pz / fov); // inverse of projection
+                    float py = (sy - cy) * (pz / fov);
+                    return std::array<float, 3>{px, py, pz};
+                };
+
+                auto p1 = reconstruct(b1);
+                auto p2 = reconstruct(b2);
+                auto p3 = reconstruct(b3);
+
+                // e1 = p2 - p1, e2 = p3 - p1
+                float e1x = p2[0] - p1[0];
+                float e1y = p2[1] - p1[1];
+                float e1z = p2[2] - p1[2];
+
+                float e2x = p3[0] - p1[0];
+                float e2y = p3[1] - p1[1];
+                float e2z = p3[2] - p1[2];
+
+                // normal = e1 x e2
+                float nx = e1y * e2z - e1z * e2y;
+                float ny = e1z * e2x - e1x * e2z;
+                float nz = e1x * e2y - e1y * e2x;
+
+                float nlen = std::sqrt(nx * nx + ny * ny + nz * nz);
+                float ndotl = 0.0f;
+                if (nlen > 1e-4f)
+                {
+                    nx /= nlen;
+                    ny /= nlen;
+                    nz /= nlen;
+                    ndotl = nx * self->lightDirX_ +
+                            ny * self->lightDirY_ +
+                            nz * self->lightDirZ_;
+                }
+
+                if (ndotl < 0.0f)
+                    ndotl = 0.0f; // Lambert, no negative light
+
+                float brightness = self->lightAmbient_ + self->lightDiffuse_ * ndotl;
+                if (brightness > 1.0f)
+                    brightness = 1.0f;
+
+                finalCol = scaleColor565(col, brightness);
+            }
+
+            self->visibleColor_[visCount] = finalCol;
+            ++visCount;
+        }
+    }
+
+    // 3) Sort visible faces by Z (descending) – insertion sort (few faces)
+    for (int i = 1; i < visCount; ++i)
+    {
+        float zkey = self->visibleZ_[i];
+        int k_b1 = self->visibleB1_[i];
+        int k_b2 = self->visibleB2_[i];
+        int k_b3 = self->visibleB3_[i];
+        uint16_t k_color = self->visibleColor_[i];
+
+        int j = i - 1;
+        while (j >= 0 && self->visibleZ_[j] < zkey)
+        {
+            self->visibleZ_[j + 1] = self->visibleZ_[j];
+            self->visibleB1_[j + 1] = self->visibleB1_[j];
+            self->visibleB2_[j + 1] = self->visibleB2_[j];
+            self->visibleB3_[j + 1] = self->visibleB3_[j];
+            self->visibleColor_[j + 1] = self->visibleColor_[j];
+            --j;
+        }
+        self->visibleZ_[j + 1] = zkey;
+        self->visibleB1_[j + 1] = k_b1;
+        self->visibleB2_[j + 1] = k_b2;
+        self->visibleB3_[j + 1] = k_b3;
+        self->visibleColor_[j + 1] = k_color;
+    }
+
+    // 4) Draw visible faces
+    for (int i = 0; i < visCount; ++i)
+    {
+        int b1 = self->visibleB1_[i];
+        int b2 = self->visibleB2_[i];
+        int b3 = self->visibleB3_[i];
+
+        int x0 = (int)self->tempVertices3d_[b1 + 0];
+        int y0 = (int)self->tempVertices3d_[b1 + 1];
+        int x1 = (int)self->tempVertices3d_[b2 + 0];
+        int y1 = (int)self->tempVertices3d_[b2 + 1];
+        int x2 = (int)self->tempVertices3d_[b3 + 0];
+        int y2 = (int)self->tempVertices3d_[b3 + 1];
+
+        uint16_t color = self->visibleColor_[i];
+
+        self->spr_->fillTriangle(x0, y0, x1, y1, x2, y2, color);
+
+        // Mark dirty region for partial update
+        int min_x = std::min({x0, x1, x2});
+        int max_x = std::max({x0, x1, x2});
+        int min_y = std::min({y0, y1, y2});
+        int max_y = std::max({y0, y1, y2});
+        self->addDirtyRect(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1);
+    }
+
+    return 0;
+}
+
+int LuaDriver::lge_set_3d_light(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    float dx = (float)luaL_checknumber(L, 1);          // Direction X - Higher is right
+    float dy = (float)luaL_checknumber(L, 2);          // Direction Y - Higher is up
+    float dz = (float)luaL_checknumber(L, 3);          // Direction Z - Higher is deeper into screen
+    float ambient = (float)luaL_optnumber(L, 4, 0.2f); // Ambient [0..1], the higher, the brighter - Keep above 0.6 for current implementation
+    float diffuse = (float)luaL_optnumber(L, 5, 0.8f); // Diffuse [0..1], the higher, the stronger the light - Should sum to 1.0 with ambient
+
+    float len = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 1e-4f)
+    {
+        // disable lighting if direction is zero
+        self->lightEnabled_ = false;
+        return 0;
+    }
+
+    dy *= -1.0f; // Invert Y to match screen coords
+
+    self->lightDirX_ = dx / len;
+    self->lightDirY_ = dy / len;
+    self->lightDirZ_ = dz / len;
+
+    // clamp to [0,1]
+    if (ambient < 0.0f)
+        ambient = 0.0f;
+    if (ambient > 1.0f)
+        ambient = 1.0f;
+    if (diffuse < 0.0f)
+        diffuse = 0.0f;
+    if (diffuse > 1.0f)
+        diffuse = 1.0f;
+
+    self->lightAmbient_ = ambient;
+    self->lightDiffuse_ = diffuse;
+    self->lightEnabled_ = true;
+
+    return 0;
 }
