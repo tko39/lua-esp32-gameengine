@@ -453,13 +453,22 @@ uint16_t LuaDriver::parseHexColor(const char *hex)
 int LuaDriver::lge_clear_canvas(lua_State *L)
 {
     LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    static uint32_t lastColor = TFT_BLACK;
     if (self && self->spr_)
     {
-        self->spr_->fillScreen(TFT_BLACK);
+        const char *hex = luaL_optstring(L, 1, "#000000");
+
+        uint16_t color = self->parseHexColor(hex);
+        self->spr_->fillScreen(color);
 
         // When clearing the whole screen, the whole screen is dirty!
         // This makes the next lge_present perform a full copy.
-        // self->addDirtyRect(0, 0, self->spr_->width(), self->spr_->height());
+        if (color != lastColor)
+        {
+            Serial.printf("Clearing canvas with new color: %s (0x%04X)\n", hex, color);
+            self->addDirtyRect(0, 0, self->spr_->width(), self->spr_->height());
+            lastColor = color;
+        }
     }
     return 0;
 }
@@ -598,7 +607,7 @@ int LuaDriver::lge_draw_text(lua_State *L)
         int y = (int)luaL_checkinteger(L, 2);
         const char *text = luaL_checkstring(L, 3);
         const char *hex = luaL_optstring(L, 4, "#ffffff");
-        uint16_t color = parseHexColor(hex);
+        uint16_t color = self->parseHexColor(hex);
 
         self->spr_->setTextFont(2);
         self->spr_->setTextColor(color);

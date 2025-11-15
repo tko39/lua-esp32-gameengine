@@ -38,6 +38,16 @@ if [ "$mode" == "header" ]; then
     echo "" >> "$output_file"
     echo "const char* lua_scripts[] = {" >> "$output_file"
     for input_file in "${input_files[@]}"; do
+        if [ ! -f "$input_file" ]; then
+            echo "Error: Input file '$input_file' does not exist."
+            exit 1
+        fi
+
+        if ! $exeDir/luac32 -p "$input_file"; then
+            echo "Error: luac32 failed to compile '$input_file'."
+            exit 1
+        fi
+
         echo "  R\"(" >> "$output_file"
         cat "$input_file" | sed -e "s/    /  /g" -e "s/--.*$//g" | grep -v "^\s*$" >> "$output_file"
         echo ")\"" >> "$output_file"
