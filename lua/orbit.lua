@@ -1,5 +1,5 @@
 -----------------------------------------
--- Sun + Two Planets Orbit (Icosahedra)
+-- Sun + Two Planets + Moon Orbit (Icosahedra)
 -- - Full 3D orbits in X–Z plane
 -- - Light follows the sun
 -- - Orbit plane tilts with touch
@@ -37,7 +37,7 @@ local faces = {2, 3, 7, 2, 8, 3, 4, 5, 6, 5, 4, 9, 7, 6, 12, 6, 7, 11, 10, 11, 3
 local MODEL_ID = lge.create_3d_model(vertices, faces)
 
 -----------------------------------------
--- Colors for sun and planets
+-- Colors for sun, planets, moon
 -----------------------------------------
 local function make_colors_sun()
     local tri_colors = {}
@@ -66,9 +66,19 @@ local function make_colors_planet2()
     return tri_colors
 end
 
+local function make_colors_moon()
+    local tri_colors = {}
+    local face_count = #faces / 3
+    for i = 1, face_count do
+        tri_colors[i] = (i % 2 == 0) and "#dddddd" or "#bbbbbb"
+    end
+    return tri_colors
+end
+
 local SUN_INSTANCE_ID = lge.create_3d_instance(MODEL_ID, make_colors_sun())
 local PLANET1_INSTANCE_ID = lge.create_3d_instance(MODEL_ID, make_colors_planet1())
 local PLANET2_INSTANCE_ID = lge.create_3d_instance(MODEL_ID, make_colors_planet2())
+local MOON_INSTANCE_ID = lge.create_3d_instance(MODEL_ID, make_colors_moon())
 
 -----------------------------------------
 -- Projection helper: world (x,y,z,r3d) -> screen (sx,sy,sr)
@@ -89,7 +99,7 @@ local function project_point(x, y, z, radius3d)
 end
 
 -----------------------------------------
--- Sun + Planet states
+-- Sun + Planets + Moon state
 -----------------------------------------
 local SUN_Z = 180
 local SUN_RADIUS = 28
@@ -102,6 +112,10 @@ local PLANET2_RADIUS = 9
 
 local ORBIT_SPEED_1 = 0.02 -- radians per frame
 local ORBIT_SPEED_2 = -0.013 -- opposite direction, slower
+
+local MOON_ORBIT_RADIUS = 20
+local MOON_RADIUS = 5
+local MOON_ORBIT_SPEED = 0.08
 
 local sun = {
     x = 0.0,
@@ -145,6 +159,21 @@ local planet2 = {
     d_angle_y = 0.019,
     d_angle_z = 0.03,
     instance_id = PLANET2_INSTANCE_ID
+}
+
+local moon = {
+    orbit_angle = 0.0,
+    x = 0.0,
+    y = 0.0,
+    z = 0.0,
+    r = MOON_RADIUS,
+    angle_x = 0,
+    angle_y = 0,
+    angle_z = 0,
+    d_angle_x = 0.04,
+    d_angle_y = 0.03,
+    d_angle_z = 0.05,
+    instance_id = MOON_INSTANCE_ID
 }
 
 -----------------------------------------
@@ -219,15 +248,13 @@ local function main_loop()
         ---------------------------------
         -- 2. Update planet orbits + rotations
         ---------------------------------
+
         -- Planet 1
         planet1.orbit_angle = planet1.orbit_angle + ORBIT_SPEED_1
-        do
-            local a = planet1.orbit_angle
-            local px = math.cos(a) * ORBIT_RADIUS_1
-            local py = 0
-            local pz = math.sin(a) * ORBIT_RADIUS_1
-            planet1.x, planet1.y, planet1.z = apply_orbit_tilt(px, py, pz)
-        end
+        local px1 = math.cos(planet1.orbit_angle) * ORBIT_RADIUS_1
+        local py1 = 0
+        local pz1 = math.sin(planet1.orbit_angle) * ORBIT_RADIUS_1
+        planet1.x, planet1.y, planet1.z = apply_orbit_tilt(px1, py1, pz1)
 
         planet1.angle_x = planet1.angle_x + planet1.d_angle_x
         planet1.angle_y = planet1.angle_y + planet1.d_angle_y
@@ -235,22 +262,30 @@ local function main_loop()
 
         -- Planet 2
         planet2.orbit_angle = planet2.orbit_angle + ORBIT_SPEED_2
-        do
-            local a = planet2.orbit_angle
-            local px = math.cos(a) * ORBIT_RADIUS_2
-            local py = 0
-            local pz = math.sin(a) * ORBIT_RADIUS_2
-            planet2.x, planet2.y, planet2.z = apply_orbit_tilt(px, py, pz)
-        end
+        local px2 = math.cos(planet2.orbit_angle) * ORBIT_RADIUS_2
+        local py2 = 0
+        local pz2 = math.sin(planet2.orbit_angle) * ORBIT_RADIUS_2
+        planet2.x, planet2.y, planet2.z = apply_orbit_tilt(px2, py2, pz2)
 
         planet2.angle_x = planet2.angle_x + planet2.d_angle_x
         planet2.angle_y = planet2.angle_y + planet2.d_angle_y
         planet2.angle_z = planet2.angle_z + planet2.d_angle_z
 
+        -- Moon orbiting Planet 1 in the same tilted plane
+        moon.orbit_angle = moon.orbit_angle + MOON_ORBIT_SPEED
+        local mpx = px1 + math.cos(moon.orbit_angle) * MOON_ORBIT_RADIUS
+        local mpy = 0
+        local mpz = pz1 + math.sin(moon.orbit_angle) * MOON_ORBIT_RADIUS
+        moon.x, moon.y, moon.z = apply_orbit_tilt(mpx, mpy, mpz)
+
+        moon.angle_x = moon.angle_x + moon.d_angle_x
+        moon.angle_y = moon.angle_y + moon.d_angle_y
+        moon.angle_z = moon.angle_z + moon.d_angle_z
+
         ---------------------------------
         -- 3. Depth sort (far → near)
         ---------------------------------
-        local bodies = {sun, planet1, planet2}
+        local bodies = {sun, planet1, planet2, moon}
         table.sort(bodies, function(a, b)
             return a.z > b.z
         end)
@@ -270,7 +305,7 @@ local function main_loop()
         local fps = fps_func()
         fps = math.floor(fps * 100 + 0.5) / 100
         draw_text(5, 5, "Orbit demo FPS: " .. fps, "#FFFFFF")
-        draw_text(5, 20, "Touch = tilt orbit plane", "#AAAAAA")
+        draw_text(5, 20, "Touch/drag = tilt orbit plane", "#AAAAAA")
 
         present()
         delay(1)
