@@ -8,8 +8,6 @@ lge.set_3d_camera(FOV, CAM_DISTANCE)
 lge.set_3d_light(0, 1, -1, 0.2, 0.8)
 
 local SCREEN_W, SCREEN_H = lge.get_canvas_size()
-local CX = SCREEN_W / 2
-local CY = SCREEN_H / 2
 
 local vertices = {0.000000, -0.525731, 0.850651, 0.850651, 0.000000, 0.525731, 0.850651, 0.000000, -0.525731, -0.850651,
                   0.000000, -0.525731, -0.850651, 0.000000, 0.525731, -0.525731, 0.850651, 0.000000, 0.525731, 0.850651,
@@ -54,7 +52,7 @@ local function main_loop()
         angle_z = angle_z + d_az
 
         -- Draw imported model
-        lge.draw_3d_instance(INSTANCE_ID, CX, CY, RADIUS, angle_x, angle_y, angle_z)
+        lge.draw_3d_instance(INSTANCE_ID, 0, 0, CAM_DISTANCE, RADIUS, angle_x, angle_y, angle_z)
 
         -- Overlay FPS
         local fps = lge.fps()

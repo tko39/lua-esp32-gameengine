@@ -1664,7 +1664,7 @@ local function main_loop()
     angle_x = angle_x + d_ax
     angle_y = angle_y + d_ay
     angle_z = angle_z + d_az
-    lge.draw_3d_instance(INSTANCE_ID, CX, CY, RADIUS, angle_x, angle_y, angle_z)
+    lge.draw_3d_instance(INSTANCE_ID, 0, 0, CAM_DISTANCE, RADIUS, angle_x, angle_y, angle_z)
     local fps = lge.fps()
     fps = math.floor(fps * 100 + 0.5) / 100
     lge.draw_text(5, 5, "OBJ model FPS: " .. fps, "#FFFFFF")
@@ -1902,8 +1902,7 @@ local function main_loop()
     end)
     for i = 1, NUM_OBJS do
       local o = objects[i]
-      local sx, sy, sr = project_object(o)
-      lge.draw_3d_instance(o.instance_id, sx, sy, sr, o.angle_x, o.angle_y, o.angle_z)
+      lge.draw_3d_instance(o.instance_id, o.x, o.y, o.z, o.r, o.angle_x, o.angle_y, o.angle_z)
     end
     local fps = fps_func()
     fps = math.floor(fps * 100 + 0.5) / 100
@@ -2113,8 +2112,7 @@ local function main_loop()
     end)
     for i = 1, #bodies do
       local o = bodies[i]
-      local sx, sy, sr = project_point(o.x, o.y, o.z, o.r)
-      lge.draw_3d_instance(o.instance_id, sx, sy, sr, o.angle_x, o.angle_y, o.angle_z)
+      lge.draw_3d_instance(o.instance_id, o.x, o.y, o.z, o.r, o.angle_x, o.angle_y, o.angle_z)
     end
     local fps = fps_func()
     fps = math.floor(fps * 100 + 0.5) / 100

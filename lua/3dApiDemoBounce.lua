@@ -338,8 +338,9 @@ local function main_loop()
         ---------------------------------
         for i = 1, NUM_OBJS do
             local o = objects[i]
-            local sx, sy, sr = project_object(o)
-            lge.draw_3d_instance(o.instance_id, sx, sy, sr, o.angle_x, o.angle_y, o.angle_z)
+            -- local sx, sy, sr = project_object(o)
+            -- lge.draw_3d_instance(o.instance_id, sx, sy, sr, o.angle_x, o.angle_y, o.angle_z)
+            lge.draw_3d_instance(o.instance_id, o.x, o.y, o.z, o.r, o.angle_x, o.angle_y, o.angle_z)
         end
 
         ---------------------------------
