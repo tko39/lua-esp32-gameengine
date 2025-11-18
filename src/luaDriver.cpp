@@ -684,6 +684,7 @@ int LuaDriver::lge_present(lua_State *L)
 #if DEBUG_PROFILING
     static int callCount = 0;
     static int totalTime = 0;
+    static int dirtyRectTime = 0;
     int timer = millis();
 #endif
 
@@ -692,6 +693,9 @@ int LuaDriver::lge_present(lua_State *L)
 #if DIRTY_RECTS_OPTIMIZATION
     if (self && self->spr_)
     {
+#if DEBUG_PROFILING
+        int dirtyRectStart = millis();
+#endif
         // 1. Combine ALL dirty rects (erase and draw) into one list
         std::vector<DirtyRect> combined_rects;
         combined_rects.reserve(self->current_dirty_rects_.size() + self->previous_dirty_rects_.size());
@@ -700,7 +704,9 @@ int LuaDriver::lge_present(lua_State *L)
 
         // 2. Perform the merging optimization
         mergeDirtyRects(combined_rects);
-
+#if DEBUG_PROFILING
+        dirtyRectTime += millis() - dirtyRectStart;
+#endif
         // 3. Push the final, minimal set of merged rectangles
         for (const auto &rect : combined_rects)
         {
@@ -724,13 +730,14 @@ int LuaDriver::lge_present(lua_State *L)
 #if DEBUG_PROFILING
     int time_taken = millis() - timer;
     totalTime += time_taken;
-    if (++callCount % 100 == 0)
+    if (++callCount >= 50)
     {
         // Report average time for the optimized (partial) copy
-        Serial.printf("Average time per call lge_present in ms: %g\n", (totalTime) / float(callCount));
+        Serial.printf("Average time per call lge_present in ms: %g. Dirty Rect Mgmt: %g\n", (totalTime) / float(callCount), (dirtyRectTime) / float(callCount));
         Serial.printf("Free/Total/MinFree (high watermark) Internal SRAM: %d/%d/%d bytes\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap());
         callCount = 0;
         totalTime = 0;
+        dirtyRectTime = 0;
     }
 #endif
     self->updateMouseClick();
@@ -1207,6 +1214,10 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
     }
 
     // 4) Draw visible faces
+    int dirtyRectMinX = self->spr_->width();
+    int dirtyRectMinY = self->spr_->height();
+    int dirtyRectMaxX = 0;
+    int dirtyRectMaxY = 0;
     for (int i = 0; i < visCount; ++i)
     {
         int b1 = self->visibleB1_[i];
@@ -1229,8 +1240,17 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
         int max_x = std::max({x0, x1, x2});
         int min_y = std::min({y0, y1, y2});
         int max_y = std::max({y0, y1, y2});
-        self->addDirtyRect(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1);
+        if (min_x < dirtyRectMinX)
+            dirtyRectMinX = min_x;
+        if (min_y < dirtyRectMinY)
+            dirtyRectMinY = min_y;
+        if (max_x > dirtyRectMaxX)
+            dirtyRectMaxX = max_x;
+        if (max_y > dirtyRectMaxY)
+            dirtyRectMaxY = max_y;
     }
+
+    self->addDirtyRect(dirtyRectMinX, dirtyRectMinY, dirtyRectMaxX - dirtyRectMinX + 1, dirtyRectMaxY - dirtyRectMinY + 1);
 
     return 0;
 }
