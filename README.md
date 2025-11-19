@@ -16,7 +16,8 @@ A PlatformIO/Arduino project for ESP32 for Lua Game Engine [lge](https://luagame
 /src/               # Main application code (entry: main.cpp, Lua bridge, game logic)
 /include/           # Project headers
 /platformio.ini     # Build configuration, pin macros, dependencies
-/lua/               # Example lua applications, color table, and 32 bit lua compiler (for windows)
+/lua/               # Example Lua scripts and applications
+/lua/api/           # Lua API documentation
 /data/runtime.luac  # Example of compiled runtime
 ```
 
@@ -25,15 +26,21 @@ A PlatformIO/Arduino project for ESP32 for Lua Game Engine [lge](https://luagame
 1. **Install [PlatformIO](https://platformio.org/)** (VSCode recommended)
 2. **Clone this repo**
 3. **Configure pins** in `platformio.ini` (`build_flags` section). Current configuration based on [CYD](https://aliexpress.com/item/1005007883129599.html)
-4. **Build:**
+4. **Load Games:**
+   To load a 10 examples to the device, use:
+   ```sh
+   lua/luaToConst.sh -m header lua/bouncingBalls.lua lua/touchSequence.lua lua/sideShooter.lua lua/rotatingBox.lua lua/bouncingRotatingCubes.lua lua/flappyBird.lua lua/3dApiDemo.lua lua/3dApiDemoBounce.lua lua/orbit.lua lua/gemfall.lua
+   ```
+   This will create an `h` file with the entire code for all 10 examples, once compiled the games will be available.
+5. **Build:**
    ```sh
    platformio run
    ```
-5. **Upload:**
+6. **Upload:**
    ```sh
    platformio run -t upload
    ```
-6. **Monitor serial output:**
+7. **Monitor serial output:**
    ```sh
    platformio device monitor --port COMx --baud 115200
    ```
@@ -50,12 +57,13 @@ A PlatformIO/Arduino project for ESP32 for Lua Game Engine [lge](https://luagame
 - **Display/touch/game loop**: Edit `src/main.cpp`
 - **Lua integration**: See `src/luaDriver.cpp` and `src/luaDriver.hpp`
 - **Pin changes**: Edit `platformio.ini` and rebuild
+- **Example Lua scripts**: See the `lua/` directory
+- **Lua API documentation**: See the `lua/api/` directory
 
 ## Troubleshooting
 
 - **Touch not working?** Check pin macros and calibration constants
 - **Display issues?** Confirm SPI wiring and `platformio.ini` settings
-- **See `.github/copilot-instructions.md`** for detailed project conventions and patterns
 
 ## License
 
