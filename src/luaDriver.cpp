@@ -34,7 +34,6 @@ static int luaMillis(lua_State *L);
 static int luaPrint(lua_State *L);
 static int luaGetSystemInfo(lua_State *L);
 
-// Implement LuaDriver methods
 LuaDriver::LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts)
     : L_(nullptr), led_status_(0), tft_(tft), ts_(ts), spr_(nullptr), fov3d_(200.0f), camDist3d_(100.0f)
 {
@@ -437,7 +436,6 @@ static int luaGetSystemInfo(lua_State *L)
 
 // --- LGE helper functions ---
 
-// NEW: Implementation of the Dirty Rect Adder
 void LuaDriver::addDirtyRect(int x, int y, int w, int h)
 {
 #if DIRTY_RECTS_OPTIMIZATION
@@ -732,7 +730,6 @@ int LuaDriver::lge_present(lua_State *L)
     totalTime += time_taken;
     if (++callCount >= 50)
     {
-        // Report average time for the optimized (partial) copy
         Serial.printf("Average time per call lge_present in ms: %g. Dirty Rect Mgmt: %g\n", (totalTime) / float(callCount), (dirtyRectTime) / float(callCount));
         Serial.printf("Free/Total/MinFree (high watermark) Internal SRAM: %d/%d/%d bytes\n", ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap());
         callCount = 0;
@@ -977,8 +974,6 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
     if (!self || !self->spr_)
         return 0;
 
-    // New Lua signature:
-    // draw_3d_instance(instance_id, wx, wy, wz, radius, ax, ay, az)
     int instanceId = (int)luaL_checkinteger(L, 1);
     float wx = (float)luaL_checknumber(L, 2);     // world x
     float wy = (float)luaL_checknumber(L, 3);     // world y
@@ -1264,7 +1259,7 @@ int LuaDriver::lge_set_3d_light(lua_State *L)
     float dx = (float)luaL_checknumber(L, 1);          // Direction X - Higher is right
     float dy = (float)luaL_checknumber(L, 2);          // Direction Y - Higher is up
     float dz = (float)luaL_checknumber(L, 3);          // Direction Z - Higher is deeper into screen
-    float ambient = (float)luaL_optnumber(L, 4, 0.2f); // Ambient [0..1], the higher, the brighter - Keep above 0.6 for current implementation
+    float ambient = (float)luaL_optnumber(L, 4, 0.2f); // Ambient [0..1], the higher, the brighter
     float diffuse = (float)luaL_optnumber(L, 5, 0.8f); // Diffuse [0..1], the higher, the stronger the light - Should sum to 1.0 with ambient
 
     float len = std::sqrt(dx * dx + dy * dy + dz * dz);

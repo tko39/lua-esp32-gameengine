@@ -604,7 +604,7 @@ local function update_rotations()
             rot.y = rot.y + rot.dy
             rot.z = rot.z + rot.dz
 
-            -- Scale animation: prefer shrinking for matched gems (<= 0.1), otherwise grow back to 1.0
+            -- Scale animation: prefer shrinking for matched gems (<= GEM_MATCH_START_SIZE), otherwise grow back to 1.0
             if gem_scales[y][x] <= GEM_MATCH_START_SIZE and board[y][x] > 0 then
                 -- Shrinking for match animation
                 gem_scales[y][x] = gem_scales[y][x] - GEM_MATCH_SHRINK

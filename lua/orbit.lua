@@ -1,7 +1,6 @@
 -----------------------------------------
 -- Sun + Two Planets + Moon Orbit (Icosahedra)
 -- - Full 3D orbits in X–Z plane
--- - Light follows the sun
 -- - Orbit plane tilts with touch
 -----------------------------------------
 math.randomseed(millis() % 1000000)
@@ -283,7 +282,7 @@ local function main_loop()
         moon.angle_z = moon.angle_z + moon.d_angle_z
 
         ---------------------------------
-        -- 3. Depth sort (far → near)
+        -- 3. Depth sort (far -> near)
         ---------------------------------
         local bodies = {sun, planet1, planet2, moon}
         table.sort(bodies, function(a, b)
@@ -296,8 +295,6 @@ local function main_loop()
         for i = 1, #bodies do
             local o = bodies[i]
             lge.draw_3d_instance(o.instance_id, o.x, o.y, o.z, o.r, o.angle_x, o.angle_y, o.angle_z)
-            -- local sx, sy, sr = project_point(o.x, o.y, o.z, o.r)
-            -- lge.draw_3d_instance(o.instance_id, sx, sy, sr, o.angle_x, o.angle_y, o.angle_z)
         end
 
         ---------------------------------

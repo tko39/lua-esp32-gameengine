@@ -9,7 +9,7 @@ math.randomseed(millis() % 1000000)
 local FOV = 220
 local CAM_DISTANCE = 180
 
--- These are *world-space* radii now (3D sphere radius)
+-- These are *world-space* radii (3D sphere radius)
 local RADIUS_MIN = 12
 local RADIUS_MAX = 22
 
@@ -47,7 +47,7 @@ local faces = {2, 3, 7, 2, 8, 3, 4, 5, 6, 5, 4, 9, 7, 6, 12, 6, 7, 11, 10, 11, 3
 -- Create model in C++ renderer
 local MODEL_ID = lge.create_3d_model(vertices, faces)
 
--- Simple repeating palette (avoid blues for your 3-3-2 setup)
+-- Simple repeating palette (avoid blues for 3-3-2 setup)
 local palette = {"#00ff00", -- green
 "#ff0000", -- red
 "#ffff00" -- yellow
@@ -338,8 +338,6 @@ local function main_loop()
         ---------------------------------
         for i = 1, NUM_OBJS do
             local o = objects[i]
-            -- local sx, sy, sr = project_object(o)
-            -- lge.draw_3d_instance(o.instance_id, sx, sy, sr, o.angle_x, o.angle_y, o.angle_z)
             lge.draw_3d_instance(o.instance_id, o.x, o.y, o.z, o.r, o.angle_x, o.angle_y, o.angle_z)
         end
 

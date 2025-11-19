@@ -6,9 +6,6 @@
 --     - Depth Sorting (Painter's Algorithm)
 --     - Colors in #RRGGBB format
 --     - OPTIMIZED: Pre-calculated trig and inlined rotations
--- 
--- [REMOVED] rotate_x, rotate_y, rotate_z functions are no longer needed
--- as they will be inlined in the draw() loop for performance.
 ---------------------------------
 --  🌎 Global Variables
 ---------------------------------
@@ -83,7 +80,7 @@ local fov = 256 -- Field of View (acts as a zoom)
 local distance = 5 -- Distance from camera to cube's center
 
 ---------------------------------
---  ⚙️ Main Loop Functions
+--  Main Loop Functions
 ---------------------------------
 
 -- Update logic (called once per frame)
@@ -202,7 +199,7 @@ function draw()
 end
 
 ---------------------------------
---  🚀 Main Program Loop
+--  Main Program Loop
 ---------------------------------
 
 function main_loop()

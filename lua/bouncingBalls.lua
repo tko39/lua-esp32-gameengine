@@ -4,7 +4,7 @@ local BALL_MIN_R = 15
 local BALL_MAX_R = 30
 local BALL_MAX_V = 6
 
-local MAX_VEL = 10 -- maximum allowed velocity for dx/dy (from your previous update)
+local MAX_VEL = 10 -- maximum allowed velocity for dx/dy
 local RESTORE_RATE = 0.05 -- how quickly velocity returns to original (0.0-1.0)
 
 -- Function to generate a random hex color

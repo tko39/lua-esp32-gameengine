@@ -137,7 +137,7 @@ function Cube:prepare_fast_representation()
         face_flat[(f - 1) * 4 + 1] = face[1]
         face_flat[(f - 1) * 4 + 2] = face[2]
         face_flat[(f - 1) * 4 + 3] = face[3]
-        face_flat[(f - 1) * 4 + 4] = face[4] -- keep color as-is (could be index)
+        face_flat[(f - 1) * 4 + 4] = face[4]
     end
     self.faces_flat = face_flat
     self.faces_count = fc
@@ -207,7 +207,6 @@ function Cube:new(x, y, dx, dy, radius, max_vel, restore_rate, fov, cam_dist)
     -- So, rearranging: model_scale = visual_radius * (distance / fov)
     self.size = self.r * (self.z_distance / self.fov)
 
-    --[[
     -- Trace the math for a small cube:
     -- r = 15, z_distance = 100, fov = 200
     -- self.size = 15 * (100 / 200) = 7.5
@@ -218,7 +217,6 @@ function Cube:new(x, y, dx, dy, radius, max_vel, restore_rate, fov, cam_dist)
     -- z_factor = fov / pz = 200 / 100 = 2
     -- projected_radius = px * z_factor = 7.5 * 2 = 15
     -- This matches self.r!
-    --]]
 
     -- Optimizations - lower allocation count:
     self.transformed_vertices = {}
@@ -507,7 +505,7 @@ end
 
 -- Define the number of cubes to generate
 local NUM_CUBES = 4
-local CUBE_MIN_R = 15 -- Renamed from _SIZE to _R (Radius)
+local CUBE_MIN_R = 15
 local CUBE_MAX_R = 30 -- This is the desired 2D collision/visual radius
 local CUBE_MAX_V = 6
 
@@ -612,7 +610,7 @@ local function check_object_collision(o1, o2)
 end
 
 ---------------------------------
---  ⚙️ Main Program Loop
+--  Main Program Loop
 ---------------------------------
 
 local function main_loop()

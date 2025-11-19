@@ -9,7 +9,7 @@ local W, H = 320, 240
 
 -- Player
 local PLAYER_X = 14
-local PLAYER_SPEED = 220 -- (not used; we follow mouse)
+local PLAYER_SPEED = 220 -- (not used if we follow touch/mouse)
 local PLAYER_WIDTH = 10
 local PLAYER_HEIGHT = 8
 local PLAYER_IFRAME = 1.0 -- seconds of invulnerability after hit
@@ -51,22 +51,6 @@ local PU_KIND = {
 -- Misc
 local FIXED_DT = 1 / 60
 local FRAME_DELAY_MS = 16
-
----- Colors
----- Intended colors
--- local C = {
---     WHITE = "#FFFFFF",
---     GREY = "#C0C0C0",
---     LIGHT = "#88CCFF",
---     CYAN = "#00E5FF",
---     BLUE = "#3A7FFF",
---     GREEN = "#00FF7F",
---     YELLOW = "#FFD447",
---     ORANGE = "#FFA64D",
---     RED = "#FF4D4D",
---     DARKRED = "#C02020",
---     PURPLE = "#BA68C8"
--- }
 
 -- Closest 8-bit approximations
 local C = {
@@ -368,7 +352,7 @@ local function update_player(dt)
     if my then
         player.y = clamp(my, 10, H - 10)
     else
-        -- keyboard fallback
+        -- BLE Joystick fallback
         if lge.is_key_down("UP") then
             player.y = math.max(10, player.y - PLAYER_SPEED * dt)
         elseif lge.is_key_down("DOWN") then

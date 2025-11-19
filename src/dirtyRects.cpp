@@ -1,4 +1,3 @@
-// --- Add to LuaDriver.cpp ---
 #include <Arduino.h>
 #include <algorithm> // For std::max and std::min
 #include "dirtyRects.hpp"

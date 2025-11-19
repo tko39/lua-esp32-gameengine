@@ -57,7 +57,7 @@ vertices_norm = [(x * scale, y * scale, z * scale) for (x, y, z) in vertices_cen
 # trimesh faces are 0-based; your Lua / OBJ style is 1-based.
 faces_1based = [(i1 + 1, i2 + 1, i3 + 1) for (i1, i2, i3) in faces]
 
-# --- write Lua file (same format as before) ---
+# --- write Lua file ---
 with out_path.open("w", encoding="utf-8") as out:
     out.write("-- Auto-generated from %s\n" % in_path.name)
     out.write("return {\n")

@@ -1,10 +1,11 @@
 -- bubblePop.lua
--- Casual bubble popping game using the lge.* API described in .test/prompt2d.md
--- Controls: mouse click to pop bubbles. Single-file game.
+-- Casual bubble popping game using the lge.* API described in api2d.md
+-- Controls: touches (mouse clicks) to pop bubbles. Single-file game.
 -- Contract
 -- Inputs: lge.get_mouse_click(), lge.get_mouse_position()
 -- Outputs: drawing via lge.draw_* functions, lge.present(), lge.delay()
 -- Success: game runs, spawns bubbles, popping increases score, combos, timer, restart.
+---------------------------------
 -- Game settings
 local SPAWN_INTERVAL = 700 -- ms between spawns at base difficulty
 local MIN_RADIUS = 10
@@ -67,7 +68,7 @@ local function spawn_bubble()
     local r = math.floor(rand(MIN_RADIUS, MAX_RADIUS))
     local x = math.floor(rand(r, canvas_w - r))
     local y = canvas_h + r + 2
-    -- use difficulty-adjusted float speed bounds; locals may not be initialized yet so fallback to defaults
+    -- use difficulty-adjusted float speed bounds
     local a = (type(float_speed_min_local) == "number") and float_speed_min_local or FLOAT_SPEED_MIN
     local b = (type(float_speed_max_local) == "number") and float_speed_max_local or FLOAT_SPEED_MAX
     local minv, maxv = (a <= b) and a or b, (a <= b) and b or a
@@ -264,8 +265,6 @@ local function draw()
     for _, p in ipairs(particles) do
         local age = now_ms() - p.born
         local alpha = 1 - (age / p.life)
-        -- approximate alpha by mixing with background: we'll fade to BG_COLOR by interpolating color toward BG
-        -- but API only accepts color strings, so use p.color for now but smaller size
         local size = math.max(1, math.floor(2 * alpha))
         lge.draw_circle(p.x, p.y, size, p.color)
     end
@@ -300,7 +299,6 @@ local function draw()
     lge.present()
 end
 
--- Main loop entry points expected by engine
 function setup()
     math.randomseed(os.time())
     canvas_w, canvas_h = lge.get_canvas_size()
@@ -308,7 +306,6 @@ function setup()
 end
 
 function update()
-    -- engine likely calls this in a loop. We'll implement a small frame timing using os.clock.
     local last = now_ms()
     while true do
         local current = now_ms()
@@ -336,6 +333,5 @@ function update()
     end
 end
 
--- Run standalone
 setup()
 update()

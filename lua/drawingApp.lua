@@ -1,5 +1,5 @@
 -- drawingApp.lua
--- Simple drawing app using the lge.* API described in .test/prompt2d.md
+-- Simple drawing app using the lge.* API described in api2d.md
 -- White canvas, draw with mouse position. Click "Pen" to toggle pen, "Clear" to clear canvas.
 local BG_COLOR = "#ffffff"
 local HUD_COLOR = "#000000"
@@ -167,7 +167,6 @@ function update()
     lge.delay(16)
 end
 
--- run standalone if desired
 setup()
 while true do
     update()
