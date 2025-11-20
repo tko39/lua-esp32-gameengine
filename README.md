@@ -61,8 +61,8 @@ https://github.com/user-attachments/assets/55912871-5496-4096-9338-ae1338133dc4
 - **Display/touch/game loop**: Edit `src/main.cpp`
 - **Lua integration**: See `src/luaDriver.cpp` and `src/luaDriver.hpp`
 - **Pin changes**: Edit `platformio.ini` and rebuild
-- **Example Lua scripts**: See the `lua/` directory
-- **Lua API documentation**: See the `lua/api/` directory
+- **Example Lua scripts**: See the [lua/](lua/) directory
+- **Lua API documentation**: See the [lua/api/](lua/api) directory
 
 ## Troubleshooting
 
