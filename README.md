@@ -1,4 +1,4 @@
-# LuaArduinoEngine (ESP32, PlatformIO)
+# Lua-ESP32-GameEngine (ESP32, PlatformIO)
 
 A PlatformIO/Arduino project for ESP32 for Lua Game Engine [lge](https://luagameengine.com), TFT display rendering (TFT_eSPI), and resistive touch input (XPT2046). Lua scripting is integrated for game logic. Core source is in `/src/` and `/include/`.
 
