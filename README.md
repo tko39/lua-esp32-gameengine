@@ -2,6 +2,10 @@
 
 A PlatformIO/Arduino project for ESP32 for Lua Game Engine [lge](https://luagameengine.com), TFT display rendering (TFT_eSPI), and resistive touch input (XPT2046). Lua scripting is integrated for game logic. Core source is in `/src/` and `/include/`.
 
+## Demo
+
+https://github.com/user-attachments/assets/55912871-5496-4096-9338-ae1338133dc4
+
 ## Features
 
 - **TFT display** via [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI)
