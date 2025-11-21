@@ -16,6 +16,7 @@ extern "C"
 
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <ArduinoJson.h>
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
@@ -36,6 +37,10 @@ static int luaGetSystemInfo(lua_State *L);
 
 LuaDriver::LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts)
     : L_(nullptr), led_status_(0), tft_(tft), ts_(ts), spr_(nullptr), fov3d_(200.0f), camDist3d_(100.0f)
+#if ENABLE_WIFI
+      ,
+      wsCallbackRef_(LUA_NOREF)
+#endif
 {
 }
 
@@ -95,6 +100,13 @@ void LuaDriver::setIsKeyDownCallback(KeyPressedCallback callback)
 {
     isPressedCallback_ = callback;
 }
+
+#if ENABLE_WIFI
+void LuaDriver::setWiFiInitCallback(WiFiInitCallback callback)
+{
+    wifiInitCallback_ = callback;
+}
+#endif
 
 void LuaDriver::loadLuaFromFS()
 {
@@ -374,6 +386,40 @@ void LuaDriver::registerLgeModule()
     lua_pushlightuserdata(L_, self);
     lua_pushcclosure(L_, lge_set_3d_light, 1);
     lua_setfield(L_, -2, "set_3d_light");
+
+    // --- WebSocket API ---
+
+#if ENABLE_WIFI
+    // ws_connect(url)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_ws_connect, 1);
+    lua_setfield(L_, -2, "ws_connect");
+
+    // ws_send(message)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_ws_send, 1);
+    lua_setfield(L_, -2, "ws_send");
+
+    // ws_on_message(callback)
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_ws_on_message, 1);
+    lua_setfield(L_, -2, "ws_on_message");
+
+    // ws_is_connected()
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_ws_is_connected, 1);
+    lua_setfield(L_, -2, "ws_is_connected");
+
+    // ws_disconnect()
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_ws_disconnect, 1);
+    lua_setfield(L_, -2, "ws_disconnect");
+
+    // ws_loop()
+    lua_pushlightuserdata(L_, self);
+    lua_pushcclosure(L_, lge_ws_loop, 1);
+    lua_setfield(L_, -2, "ws_loop");
+#endif
 
     // Set the table in the global namespace as `lge`
     lua_setglobal(L_, "lge");
@@ -1292,3 +1338,298 @@ int LuaDriver::lge_set_3d_light(lua_State *L)
 
     return 0;
 }
+
+// --- WebSocket Implementation ---
+#if ENABLE_WIFI
+void LuaDriver::webSocketEvent(LuaDriver *self, WStype_t type, uint8_t *payload, size_t length)
+{
+    if (self)
+    {
+        self->handleWebSocketEvent(type, payload, length);
+    }
+}
+
+void LuaDriver::handleWebSocketEvent(WStype_t type, uint8_t *payload, size_t length)
+{
+    switch (type)
+    {
+    case WStype_DISCONNECTED:
+        Serial.println("[WS] Disconnected");
+        wsConnected_ = false;
+        break;
+
+    case WStype_CONNECTED:
+        Serial.printf("[WS] Connected to url: %s\n", payload);
+        wsConnected_ = true;
+        break;
+
+    case WStype_TEXT:
+    {
+        Serial.printf("[WS] Received: %s\n", payload);
+
+        // Call Lua callback if registered
+        if (wsCallbackRef_ != LUA_NOREF && L_)
+        {
+            // Get the callback function from registry
+            lua_rawgeti(L_, LUA_REGISTRYINDEX, wsCallbackRef_);
+
+            if (lua_isfunction(L_, -1))
+            {
+                // Parse JSON message
+                JsonDocument doc;
+                DeserializationError error = deserializeJson(doc, payload, length);
+
+                if (!error)
+                {
+                    // Create Lua table for the message
+                    lua_newtable(L_);
+
+                    // Add message type if present
+                    if (doc["type"].is<const char *>())
+                    {
+                        const char *typeStr = doc["type"];
+                        lua_pushstring(L_, typeStr);
+                        lua_setfield(L_, -2, "type");
+                    }
+
+                    // Add all other fields from JSON
+                    for (JsonPair kv : doc.as<JsonObject>())
+                    {
+                        const char *key = kv.key().c_str();
+                        JsonVariant value = kv.value();
+
+                        lua_pushstring(L_, key);
+
+                        if (value.is<const char *>())
+                        {
+                            lua_pushstring(L_, value.as<const char *>());
+                        }
+                        else if (value.is<int>())
+                        {
+                            lua_pushinteger(L_, value.as<int>());
+                        }
+                        else if (value.is<double>())
+                        {
+                            lua_pushnumber(L_, value.as<double>());
+                        }
+                        else if (value.is<bool>())
+                        {
+                            lua_pushboolean(L_, value.as<bool>());
+                        }
+                        else if (value.isNull())
+                        {
+                            lua_pushnil(L_);
+                        }
+                        else
+                        {
+                            // For complex types, push as string representation
+                            String str;
+                            serializeJson(value, str);
+                            lua_pushstring(L_, str.c_str());
+                        }
+
+                        lua_settable(L_, -3);
+                    }
+
+                    // Call the Lua callback with the message table
+                    if (lua_pcall(L_, 1, 0, 0) != LUA_OK)
+                    {
+                        Serial.print("[WS] Lua callback error: ");
+                        Serial.println(lua_tostring(L_, -1));
+                        lua_pop(L_, 1);
+                    }
+                }
+                else
+                {
+                    Serial.printf("[WS] JSON parse error: %s\n", error.c_str());
+
+                    // Call callback with raw string if JSON parsing fails
+                    lua_pushstring(L_, (const char *)payload);
+
+                    if (lua_pcall(L_, 1, 0, 0) != LUA_OK)
+                    {
+                        Serial.print("[WS] Lua callback error: ");
+                        Serial.println(lua_tostring(L_, -1));
+                        lua_pop(L_, 1);
+                    }
+                }
+            }
+            else
+            {
+                lua_pop(L_, 1); // Pop non-function value
+            }
+        }
+    }
+    break;
+
+    case WStype_ERROR:
+        Serial.printf("[WS] Error: %s\n", payload);
+        break;
+
+    case WStype_BIN:
+        Serial.println("[WS] Binary data received (not supported)");
+        break;
+
+    default:
+        break;
+    }
+}
+
+// lge.ws_connect(url) - Connect to WebSocket server
+int LuaDriver::lge_ws_connect(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    const char *url = luaL_checkstring(L, 1);
+    if (!url)
+    {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Initialize WiFi once if not already done
+    if (!self->wifiInitialized_ && self->wifiInitCallback_)
+    {
+        Serial.println("[WS] Initializing WiFi...");
+        self->wifiInitCallback_();
+        self->wifiInitialized_ = true;
+    }
+
+    Serial.printf("[WS] Connecting to: %s\n", url);
+
+    // Parse URL: ws://host:port/path or wss://host:port/path
+    String urlStr(url);
+    bool isSecure = urlStr.startsWith("wss://");
+    bool isInsecure = urlStr.startsWith("ws://");
+
+    if (!isSecure && !isInsecure)
+    {
+        Serial.println("[WS] Invalid URL scheme. Use ws:// or wss://");
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    // Remove protocol
+    String remaining = urlStr.substring(isSecure ? 6 : 5);
+
+    // Find host, port, and path
+    int slashPos = remaining.indexOf('/');
+    String hostPort = slashPos >= 0 ? remaining.substring(0, slashPos) : remaining;
+    String path = slashPos >= 0 ? remaining.substring(slashPos) : "/";
+
+    int colonPos = hostPort.indexOf(':');
+    String host = colonPos >= 0 ? hostPort.substring(0, colonPos) : hostPort;
+    uint16_t port = colonPos >= 0 ? hostPort.substring(colonPos + 1).toInt() : (isSecure ? 443 : 80);
+
+    Serial.printf("[WS] Parsed - Host: %s, Port: %d, Path: %s, Secure: %d\n",
+                  host.c_str(), port, path.c_str(), isSecure);
+
+    // Set up event handler with lambda that captures 'self'
+    self->wsClient_.onEvent([self](WStype_t type, uint8_t *payload, size_t length)
+                            { LuaDriver::webSocketEvent(self, type, payload, length); });
+
+    // Connect
+    if (isSecure)
+    {
+        self->wsClient_.beginSSL(host, port, path);
+    }
+    else
+    {
+        self->wsClient_.begin(host, port, path);
+    }
+
+    self->wsClient_.setReconnectInterval(5000);
+
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+// lge.ws_send(message) - Send message to WebSocket server
+int LuaDriver::lge_ws_send(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self || !self->wsConnected_)
+    {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    const char *message = luaL_checkstring(L, 1);
+    if (!message)
+    {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    Serial.printf("[WS] Sending: %s\n", message);
+    bool success = self->wsClient_.sendTXT(message);
+
+    lua_pushboolean(L, success);
+    return 1;
+}
+
+// lge.ws_on_message(callback) - Register Lua callback for WebSocket messages
+int LuaDriver::lge_ws_on_message(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    // Check if argument is a function
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+
+    // Unref previous callback if exists
+    if (self->wsCallbackRef_ != LUA_NOREF)
+    {
+        luaL_unref(L, LUA_REGISTRYINDEX, self->wsCallbackRef_);
+    }
+
+    // Store new callback in registry
+    lua_pushvalue(L, 1); // Push the function to top of stack
+    self->wsCallbackRef_ = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    Serial.println("[WS] Message callback registered");
+    return 0;
+}
+
+// lge.ws_is_connected() - Check if WebSocket is connected
+int LuaDriver::lge_ws_is_connected(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+    {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+
+    lua_pushboolean(L, self->wsConnected_);
+    return 1;
+}
+
+// lge.ws_disconnect() - Disconnect from WebSocket server
+int LuaDriver::lge_ws_disconnect(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    Serial.println("[WS] Disconnecting...");
+    self->wsClient_.disconnect();
+    self->wsConnected_ = false;
+
+    return 0;
+}
+
+// lge.ws_loop() - Process WebSocket events (must be called regularly)
+int LuaDriver::lge_ws_loop(lua_State *L)
+{
+    LuaDriver *self = (LuaDriver *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!self)
+        return 0;
+
+    self->wsClient_.loop();
+    return 0;
+}
+#endif

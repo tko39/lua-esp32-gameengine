@@ -11,6 +11,10 @@ struct lua_State;
 #include "dirtyRects.hpp"
 #include "flags.h"
 #include "controller.hpp"
+#if ENABLE_WIFI
+#include <WebSocketsClient.h>
+typedef void (*WiFiInitCallback)();
+#endif
 
 // Mouse click event state
 struct MouseClick
@@ -34,6 +38,9 @@ public:
     lua_State *state();
     void callLuaFunctionFromCpp();
     void setIsKeyDownCallback(KeyPressedCallback callback);
+#if ENABLE_WIFI
+    void setWiFiInitCallback(WiFiInitCallback callback);
+#endif
 
 private:
     lua_State *L_;
@@ -67,6 +74,16 @@ private:
     static int lge_get_mouse_click(lua_State *L);
     static int lge_get_mouse_position(lua_State *L);
     static int lge_is_key_down(lua_State *L);
+
+// WebSocket functions
+#if ENABLE_WIFI
+    static int lge_ws_connect(lua_State *L);
+    static int lge_ws_send(lua_State *L);
+    static int lge_ws_on_message(lua_State *L);
+    static int lge_ws_is_connected(lua_State *L);
+    static int lge_ws_disconnect(lua_State *L);
+    static int lge_ws_loop(lua_State *L);
+#endif
 
     // 3D functions
     static int lge_set_3d_camera(lua_State *L);
@@ -114,6 +131,18 @@ private:
     float lightDiffuse_ = 0.8f; // 0..1
 
     // End 3D
+
+    // WebSocket
+#if ENABLE_WIFI
+    WebSocketsClient wsClient_;
+    bool wsConnected_ = false;
+    int wsCallbackRef_; // Lua registry reference for the message callback
+    WiFiInitCallback wifiInitCallback_ = nullptr;
+    bool wifiInitialized_ = false;
+    static void webSocketEvent(LuaDriver *self, WStype_t type, uint8_t *payload, size_t length);
+    void handleWebSocketEvent(WStype_t type, uint8_t *payload, size_t length);
+#endif
+    // End WebSocket
 
     static uint16_t parseHexColor(const char *hex);
     static uint16_t scaleColor565(uint16_t c, float factor);

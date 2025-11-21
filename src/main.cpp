@@ -10,6 +10,51 @@
 #include "simpleBle.hpp"
 #endif
 
+#if ENABLE_WIFI
+#ifndef WIFI_SSID
+#define WIFI_SSID "UnknownSSID"
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "UnknownPassword"
+#endif
+#define WIFI_TIMEOUT 15000 // 15 seconds
+#include <WiFi.h>
+
+void initializeWiFi()
+{
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("WiFi already connected");
+    return;
+  }
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  Serial.print("Connecting to WiFi");
+
+  unsigned long startTime = millis();
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+
+    if (millis() - startTime > WIFI_TIMEOUT)
+    {
+      Serial.println("\nWiFi connection timeout!");
+      Serial.println("Please check your credentials");
+      break;
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+}
+#endif
+
 // --- Configuration ---
 // TFT_eSPI is configured via build_flags in platformio.ini
 
@@ -71,6 +116,19 @@ void setup()
 
   luaDriver.begin();
 
+#if ENABLE_BLE
+  if (simpleBle.begin())
+  {
+    luaDriver.setIsKeyDownCallback(simpleBle.isKeyDown);
+  }
+#endif
+
+#if ENABLE_WIFI
+  // Register WiFi initialization callback - will be called on-demand by ws_connect
+  // to save memory by avoiding the initialization WiFi if not used by the Lua script
+  luaDriver.setWiFiInitCallback(initializeWiFi);
+#endif
+
 #if LUA_FROM_FILE
   if (!SPIFFS.begin(false))
   {
@@ -82,13 +140,6 @@ void setup()
   }
 
   luaDriver.loadLuaFromFS();
-#endif
-
-#if ENABLE_BLE
-  if (simpleBle.begin())
-  {
-    luaDriver.setIsKeyDownCallback(simpleBle.isKeyDown);
-  }
 #endif
 
   runDiagnostics("Lua driver initialized");
@@ -151,6 +202,10 @@ void runDiagnostics(const char *message = nullptr)
     file = root.openNextFile();
   }
 #endif
+
+  Serial.println("================================\n");
+  Serial.printf("WiFi parameters:\nSSID: %s\nPassword: %s\n", WIFI_SSID, WIFI_PASSWORD);
+  Serial.println("================================\n");
 }
 
 void loop()
