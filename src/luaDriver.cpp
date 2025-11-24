@@ -37,6 +37,10 @@ static int luaGetSystemInfo(lua_State *L);
 
 LuaDriver::LuaDriver(TFT_eSPI *tft, XPT2046_Touchscreen *ts)
     : L_(nullptr), led_status_(0), tft_(tft), ts_(ts), spr_(nullptr), fov3d_(200.0f), camDist3d_(100.0f)
+#if DIRTY_TILE_OPTIMIZATION
+      ,
+      tileManager_(nullptr)
+#endif
 #if ENABLE_WIFI
       ,
       wsCallbackRef_(LUA_NOREF)
@@ -50,6 +54,12 @@ LuaDriver::~LuaDriver()
     {
         lua_close(L_);
     }
+#if DIRTY_TILE_OPTIMIZATION
+    if (tileManager_)
+    {
+        delete tileManager_;
+    }
+#endif
 }
 
 void LuaDriver::begin()
@@ -58,11 +68,23 @@ void LuaDriver::begin()
     int w = tft_ ? tft_->width() : 320;
     int h = tft_ ? tft_->height() : 240;
 
+#if DIRTY_TILE_OPTIMIZATION
+    // Initialize tile manager
+    tileManager_ = new DirtyTileManager(w, h);
+#endif
+
     spr_ = new TFT_eSprite(tft_);
     spr_->setColorDepth(8);
     if (spr_->createSprite(w, h, 1))
     {
         Serial.println("Created sprite successfully");
+#if DIRTY_TILE_OPTIMIZATION
+        // Set sprite buffer for content-based tile hashing
+        if (tileManager_)
+        {
+            tileManager_->setSpriteBuffer((uint8_t *)spr_->getPointer(), w);
+        }
+#endif
     }
     else
     {
@@ -482,7 +504,7 @@ static int luaGetSystemInfo(lua_State *L)
 
 // --- LGE helper functions ---
 
-void LuaDriver::addDirtyRect(int x, int y, int w, int h)
+void LuaDriver::addDirtyRegion(int x, int y, int w, int h)
 {
 #if DIRTY_RECTS_OPTIMIZATION
     // 1. Basic validation and clipping
@@ -499,6 +521,11 @@ void LuaDriver::addDirtyRect(int x, int y, int w, int h)
 
     DirtyRect new_rect = {x1_new, y1_new, x2_new, y2_new};
     current_dirty_rects_.push_back(new_rect);
+#elif DIRTY_TILE_OPTIMIZATION
+    if (tileManager_)
+    {
+        tileManager_->markDirtyRegion(x, y, w, h);
+    }
 #endif
 }
 
@@ -563,7 +590,7 @@ int LuaDriver::lge_clear_canvas(lua_State *L)
         if (color != lastColor)
         {
             Serial.printf("Clearing canvas with new color: %s (0x%04X)\n", hex, color);
-            self->addDirtyRect(0, 0, self->spr_->width(), self->spr_->height());
+            self->addDirtyRegion(0, 0, self->spr_->width(), self->spr_->height());
             lastColor = color;
         }
     }
@@ -645,7 +672,7 @@ int LuaDriver::lge_draw_circle(lua_State *L)
         const char *hex = luaL_optstring(L, 4, "#ffffff");
         uint16_t color = self->parseHexColor(hex);
         self->spr_->fillCircle(x, y, r, color);
-        self->addDirtyRect(x - r, y - r, 2 * r + 1, 2 * r + 1);
+        self->addDirtyRegion(x - r, y - r, 2 * r + 1, 2 * r + 1);
     }
 
     return 0;
@@ -663,7 +690,7 @@ int LuaDriver::lge_draw_rectangle(lua_State *L)
         const char *hex = luaL_optstring(L, 5, "#ffffff");
         uint16_t color = self->parseHexColor(hex);
         self->spr_->fillRect(x, y, w, h, color);
-        self->addDirtyRect(x, y, w, h);
+        self->addDirtyRegion(x, y, w, h);
     }
 
     return 0;
@@ -689,7 +716,7 @@ int LuaDriver::lge_draw_triangle(lua_State *L)
         int max_x = std::max({x0, x1, x2});
         int min_y = std::min({y0, y1, y2});
         int max_y = std::max({y0, y1, y2});
-        self->addDirtyRect(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1);
+        self->addDirtyRegion(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1);
     }
 
     return 0;
@@ -718,7 +745,7 @@ int LuaDriver::lge_draw_text(lua_State *L)
         self->spr_->drawString(text, x, y);
 
         // 2. MARK THE REGION AS DIRTY
-        self->addDirtyRect(x, y, text_w, text_h);
+        self->addDirtyRegion(x, y, text_w, text_h);
     }
     return 0;
 }
@@ -761,6 +788,28 @@ int LuaDriver::lge_present(lua_State *L)
 
         self->previous_dirty_rects_.clear();
         self->previous_dirty_rects_.swap(self->current_dirty_rects_);
+    }
+#elif DIRTY_TILE_OPTIMIZATION
+    if (self && self->spr_ && self->tileManager_)
+    {
+#if DEBUG_PROFILING
+        int dirtyRectStart = millis();
+#endif
+        // Get optimized update rectangles from tile manager
+        std::vector<TileRect> updateRects = self->tileManager_->getUpdateRectangles();
+#if DEBUG_PROFILING
+        dirtyRectTime += millis() - dirtyRectStart;
+#endif
+        // Push the optimized rectangles to the display
+        for (const auto &rect : updateRects)
+        {
+            int w = rect.x2 - rect.x1 + 1;
+            int h = rect.y2 - rect.y1 + 1;
+            self->spr_->pushSprite(rect.x1, rect.y1, rect.x1, rect.y1, w, h);
+        }
+
+        // Swap buffers for next frame
+        self->tileManager_->swapBuffers();
     }
 #else
     if (self && self->spr_ && self->tft_)
@@ -1291,7 +1340,7 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
             dirtyRectMaxY = max_y;
     }
 
-    self->addDirtyRect(dirtyRectMinX, dirtyRectMinY, dirtyRectMaxX - dirtyRectMinX + 1, dirtyRectMaxY - dirtyRectMinY + 1);
+    self->addDirtyRegion(dirtyRectMinX, dirtyRectMinY, dirtyRectMaxX - dirtyRectMinX + 1, dirtyRectMaxY - dirtyRectMinY + 1);
 
     return 0;
 }

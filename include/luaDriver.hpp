@@ -8,8 +8,12 @@ struct lua_State;
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <vector>
-#include "dirtyRects.hpp"
 #include "flags.h"
+#if DIRTY_RECTS_OPTIMIZATION
+#include "dirtyRects.hpp"
+#elif DIRTY_TILE_OPTIMIZATION
+#include "dirtyTiles.hpp"
+#endif
 #include "controller.hpp"
 #if ENABLE_WIFI
 #include <WebSocketsClient.h>
@@ -147,9 +151,13 @@ private:
     static uint16_t parseHexColor(const char *hex);
     static uint16_t scaleColor565(uint16_t c, float factor);
 
+#if DIRTY_RECTS_OPTIMIZATION
     std::vector<DirtyRect> current_dirty_rects_;
     std::vector<DirtyRect> previous_dirty_rects_;
-    void addDirtyRect(int x, int y, int w, int h);
+#elif DIRTY_TILE_OPTIMIZATION
+    DirtyTileManager *tileManager_;
+#endif
+    void addDirtyRegion(int x, int y, int w, int h);
 
     void updateMouseClick();
 

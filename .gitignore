@@ -7,4 +7,5 @@
 .github/
 .test/
 
-venv
+venv/
+__pycache__/
