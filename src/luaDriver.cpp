@@ -1139,7 +1139,7 @@ int LuaDriver::lge_draw_3d_instance(lua_State *L)
         float vy = srcVerts[srcBase + 1] * baseScale;
         float vz = srcVerts[srcBase + 2] * baseScale;
 
-        // Rotate: Rx, then Ry, then Rz (same order as your Lua pipeline)
+        // Rotate: Rx, then Ry, then Rz
         float y1 = vy * cos_x - vz * sin_x;
         float z1 = vy * sin_x + vz * cos_x;
         float x1 = vx;

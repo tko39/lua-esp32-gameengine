@@ -29,7 +29,7 @@ if not vertices or not faces:
     print("No vertices or faces parsed!")
     sys.exit(1)
 
-# --- recenter + normalize to radius 1 (same as your code) ---
+# --- recenter + normalize to radius 1
 xs = [v[0] for v in vertices]
 ys = [v[1] for v in vertices]
 zs = [v[2] for v in vertices]
