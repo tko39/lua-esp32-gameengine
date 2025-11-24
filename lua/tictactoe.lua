@@ -3,7 +3,7 @@
 local width, height = lge.get_canvas_size()
 
 -- Configuration
-local WS_URL = "wss://www2.kraspel.com:8080/ws"
+local WS_URL = "ws://192.168.1.208:8080/ws"
 
 -- Game state
 local gameState = "connecting" -- connecting, waiting, playing, game_over

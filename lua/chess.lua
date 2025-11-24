@@ -3,7 +3,7 @@
 local width, height = lge.get_canvas_size()
 
 -- Configuration
-local WS_URL = "ws://192.168.1.208:8081/ws" -- Update with your server address
+local WS_URL = "ws://192.168.1.208:8081/ws"
 
 -- Game state
 local gameState = "disconnected" -- disconnected, connected, queued, playing, game_over

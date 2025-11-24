@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-Time Chess</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font -->
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap");
+      body {
+        font-family: "Inter", sans-serif;
+      }
+    </style>
+    <!-- Load Chess.js for logic -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <!-- Load Chessboard.js for visuals and interaction -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
+    />
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  </head>
+  <body class="bg-gray-50 min-h-screen p-4 flex flex-col items-center">
+    <div class="max-w-4xl w-full flex flex-col md:flex-row gap-6">
+      <!-- Game Panel -->
+      <div class="md:w-3/5 w-full bg-white shadow-xl rounded-xl p-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-4 border-b pb-2">
+          Real-Time Chess Server
+        </h1>
+
+        <div
+          id="status-panel"
+          class="mb-4 p-3 rounded-lg text-sm transition duration-300"
+        >
+          <p id="connection-status" class="font-semibold text-red-600">
+            Status: Disconnected
+          </p>
+          <p id="server-address-display" class="text-gray-600">
+            Server:
+            <span id="server-address-value" class="font-mono">Loading...</span>
+          </p>
+          <p id="user-id-display" class="text-gray-600">
+            Your ID:
+            <span id="user-id-value" class="font-mono">Loading...</span>
+          </p>
+          <p id="game-status-display" class="font-bold text-gray-700 mt-2">
+            No active game.
+          </p>
+        </div>
+
+        <div
+          id="chessboard-container"
+          class="w-full max-w-lg mx-auto shadow-2xl rounded-lg overflow-hidden border-4 border-gray-700"
+        >
+          <div id="board" style="width: 100%"></div>
+        </div>
+
+        <div class="mt-6 flex flex-col sm:flex-row gap-3">
+          <button
+            id="join-queue-btn"
+            class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50"
+            disabled
+          >
+            <span id="queue-text">Join Matchmaking Queue</span>
+          </button>
+          <button
+            id="resign-btn"
+            class="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50"
+            disabled
+          >
+            Resign Game
+          </button>
+        </div>
+      </div>
+
+      <div class="md:w-2/5 w-full bg-white shadow-xl rounded-xl p-6">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">
+          Server Log
+        </h2>
+        <div
+          id="log-container"
+          class="h-96 overflow-y-auto bg-gray-100 p-3 rounded-lg text-xs font-mono"
+        ></div>
+      </div>
+    </div>
+
+    <script>
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const WS_URL = protocol + "//" + window.location.host + "/ws";
+
+      document.getElementById("server-address-value").textContent = WS_URL;
+
+      const LOG_ELEMENT = document.getElementById("log-container");
+      const USER_ID_KEY = "chess_client_user_id";
+
+      let socket = null;
+      let userId =
+        localStorage.getItem(USER_ID_KEY) ||
+        "guest-" + Math.random().toString(16).substring(2, 8);
+      let gameId = null;
+      let playerColor = null;
+
+      let game = new Chess();
+      let board = null;
+      let boardConfig = {};
+
+      localStorage.setItem(USER_ID_KEY, userId);
+      document.getElementById("user-id-value").textContent = userId;
+
+      function updateStatus(message, isError = false) {
+        const statusPanel = document.getElementById("status-panel");
+        statusPanel.className =
+          "mb-4 p-3 rounded-lg text-sm transition duration-300 " +
+          (isError
+            ? "bg-red-100 border border-red-400"
+            : "bg-green-100 border border-green-400");
+        document.getElementById("game-status-display").textContent = message;
+      }
+
+      function log(message, type = "info") {
+        const time = new Date().toLocaleTimeString();
+        const color =
+          {
+            info: "text-gray-700",
+            system: "text-indigo-600 font-semibold",
+            error: "text-red-500 font-bold",
+            move: "text-green-600",
+          }[type] || "text-gray-700";
+
+        LOG_ELEMENT.innerHTML += `<p><span class="text-gray-500">[${time}]</span> <span class="${color}">${message}</span></p>`;
+        LOG_ELEMENT.scrollTop = LOG_ELEMENT.scrollHeight;
+      }
+
+      function setConnectionStatus(isConnected) {
+        const statusEl = document.getElementById("connection-status");
+        const joinBtn = document.getElementById("join-queue-btn");
+
+        if (isConnected) {
+          statusEl.textContent = "Status: Connected";
+          statusEl.classList.remove("text-red-600");
+          statusEl.classList.add("text-green-600");
+          joinBtn.disabled = false;
+        } else {
+          statusEl.textContent = "Status: Disconnected";
+          statusEl.classList.remove("text-green-600");
+          statusEl.classList.add("text-red-600");
+          joinBtn.disabled = true;
+          document.getElementById("resign-btn").disabled = true;
+        }
+      }
+
+      function connectWebSocket() {
+        log(`Attempting to connect to ${WS_URL}...`, "system");
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          log("Socket already open.", "info");
+          return;
+        }
+
+        socket = new WebSocket(WS_URL);
+
+        socket.onopen = () => {
+          setConnectionStatus(true);
+          log("Connection established. Sending AUTH message.", "system");
+          // AUTH message
+          socket.send(
+            JSON.stringify({
+              type: "AUTH",
+              userId: userId,
+            })
+          );
+        };
+
+        socket.onmessage = (event) => {
+          handleServerMessage(JSON.parse(event.data));
+        };
+
+        socket.onclose = () => {
+          setConnectionStatus(false);
+          log("Connection closed. Attempting to reconnect in 3s...", "error");
+          updateStatus("Disconnected. Please try again.", true);
+          setTimeout(connectWebSocket, 3000); // Simple auto-reconnect
+        };
+
+        socket.onerror = (error) => {
+          log(
+            "WebSocket Error: Could not connect or connection failed.",
+            "error"
+          );
+        };
+      }
+
+      document
+        .getElementById("join-queue-btn")
+        .addEventListener("click", () => {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            log("Joining matchmaking queue...", "system");
+            document.getElementById("queue-text").textContent =
+              "Waiting for Opponent...";
+            document.getElementById("join-queue-btn").disabled = true;
+            socket.send(
+              JSON.stringify({
+                type: "JOIN_QUEUE",
+                userId: userId,
+              })
+            );
+          }
+        });
+
+      document.getElementById("resign-btn").addEventListener("click", () => {
+        if (gameId && socket && socket.readyState === WebSocket.OPEN) {
+          log("Sending resignation...", "system");
+          document.getElementById("resign-btn").disabled = true;
+          socket.send(
+            JSON.stringify({
+              type: "RESIGN",
+              gameId: gameId,
+            })
+          );
+        }
+      });
+
+      function onDragStart(source, piece, position, orientation) {
+        if (
+          game.game_over() ||
+          game.turn() !== playerColor[0] ||
+          game.fen() === "start"
+        ) {
+          return false;
+        }
+      }
+
+      function onDrop(source, target) {
+        const move = game.move({
+          from: source,
+          to: target,
+          promotion: "q", // Always promote to queen for simplicity in this example
+        });
+
+        if (move === null) {
+          log(
+            `Client rejection: Illegal move from ${source} to ${target}`,
+            "error"
+          );
+          return "snapback";
+        }
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          log(`Submitting move: ${move.uci} to server.`, "info");
+          console.log(`Submitting move: ${move.uci} to server.`, move);
+          socket.send(
+            JSON.stringify({
+              type: "MAKE_MOVE",
+              gameId: gameId,
+              move: move.from + move.to + (move.promotion || ""),
+            })
+          );
+        }
+
+        game.undo();
+        return;
+      }
+
+      function handleServerMessage(data) {
+        log(`<< RECEIVED: ${data.type}`, "system");
+
+        switch (data.type) {
+          case "MATCH_FOUND":
+            gameId = data.gameId;
+            playerColor = data.color;
+            game.load(data.fen);
+
+            document.getElementById("queue-text").textContent =
+              "Join Matchmaking Queue";
+            document.getElementById("join-queue-btn").disabled = true;
+            document.getElementById("resign-btn").disabled = false;
+
+            boardConfig.orientation = playerColor;
+            board.destroy();
+            board = ChessBoard("board", boardConfig);
+            board.position(data.fen);
+
+            updateStatus(
+              `Game started! You are ${playerColor}. Your opponent is ${data.opponentId}.`,
+              false
+            );
+            log(`Game ${gameId} started. You are ${playerColor}.`, "system");
+            break;
+
+          case "GAME_UPDATE":
+            game.load(data.fen);
+            board.position(data.fen);
+            const turn = data.currentTurn;
+
+            if (turn === playerColor) {
+              updateStatus(`Your Turn! Move: ${data.lastMove}`, false);
+            } else {
+              updateStatus(
+                `Opponent's Turn. Last Move: ${data.lastMove}`,
+                false
+              );
+            }
+            log(`Move confirmed: ${data.lastMove}. Turn: ${turn}`, "move");
+            break;
+
+          case "MOVE_REJECTED":
+            board.position(data.fen);
+            updateStatus(`Move Rejected! Reason: ${data.reason}`, true);
+            log(`Move rejected by server: ${data.reason}.`, "error");
+            break;
+
+          case "OPPONENT_DISCONNECTED":
+            log("Opponent lost connection.", "error");
+            break;
+
+          case "GAME_END":
+            if (data.fen) {
+              game.load(data.fen);
+              board.position(data.fen);
+            }
+
+            let isWinner = data.winnerId && data.winnerId === userId;
+            if (data.result === "WIN") {
+              if (isWinner) {
+                updateStatus(`Game Over! YOU WON by ${data.reason}.`, false);
+              } else {
+                updateStatus(`Game Over! You lost by ${data.reason}.`, true);
+              }
+            } else if (data.result === "DRAW") {
+              updateStatus(`Game Over! Draw by ${data.reason}.`, false);
+            }
+
+            log(
+              `Game ${gameId} ended. Result: ${data.result}. Reason: ${data.reason}`,
+              "system"
+            );
+
+            gameId = null;
+            playerColor = null;
+            document.getElementById("resign-btn").disabled = true;
+            document.getElementById("join-queue-btn").disabled = false;
+
+            setTimeout(() => {
+              game.reset();
+              board.position("start");
+            }, 2000);
+
+            break;
+
+          case "PONG":
+            log("Pong received.", "info");
+            break;
+
+          default:
+            log(`Unknown message type: ${data.type}`, "info");
+        }
+      }
+
+      function initBoard() {
+        boardConfig = {
+          draggable: true,
+          position: "start",
+          onDragStart: onDragStart,
+          onDrop: onDrop,
+          onSnapEnd: () => {
+            board.position(game.fen());
+          },
+        };
+        board = ChessBoard("board", boardConfig);
+        updateStatus("Ready to connect.", false);
+      }
+
+      window.onload = () => {
+        initBoard();
+        connectWebSocket();
+      };
+    </script>
+  </body>
+</html>

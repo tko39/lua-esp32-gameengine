@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tic-Tac-Toe Online</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 500px;
+        width: 100%;
+      }
+
+      h1 {
+        text-align: center;
+        color: #333;
+        margin-bottom: 10px;
+      }
+
+      .status {
+        text-align: center;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 10px;
+        font-weight: bold;
+      }
+
+      .status.waiting {
+        background: #fff3cd;
+        color: #856404;
+      }
+
+      .status.playing {
+        background: #d1ecf1;
+        color: #0c5460;
+      }
+
+      .status.won {
+        background: #d4edda;
+        color: #155724;
+      }
+
+      .status.lost {
+        background: #f8d7da;
+        color: #721c24;
+      }
+
+      .status.draw {
+        background: #e2e3e5;
+        color: #383d41;
+      }
+
+      .info {
+        text-align: center;
+        color: #666;
+        margin-bottom: 20px;
+        font-size: 14px;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin: 30px 0;
+      }
+
+      .cell {
+        aspect-ratio: 1;
+        background: #f8f9fa;
+        border: 3px solid #dee2e6;
+        border-radius: 10px;
+        font-size: 48px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.3s;
+        user-select: none;
+      }
+
+      .cell:hover:not(.filled):not(.disabled) {
+        background: #e9ecef;
+        transform: scale(1.05);
+      }
+
+      .cell.filled {
+        cursor: not-allowed;
+      }
+
+      .cell.disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+
+      .cell.x {
+        color: #667eea;
+      }
+
+      .cell.o {
+        color: #764ba2;
+      }
+
+      .connection-status {
+        text-align: center;
+        padding: 10px;
+        border-radius: 5px;
+        margin-top: 20px;
+        font-size: 14px;
+      }
+
+      .connection-status.connected {
+        background: #d4edda;
+        color: #155724;
+      }
+
+      .connection-status.disconnected {
+        background: #f8d7da;
+        color: #721c24;
+      }
+
+      .room-info {
+        text-align: center;
+        color: #666;
+        font-size: 12px;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎮 Tic-Tac-Toe Online</h1>
+
+      <div id="status" class="status waiting">Connecting to server...</div>
+
+      <div id="info" class="info">
+        <span id="player-symbol">-</span> | Turn: <span id="turn">-</span>
+      </div>
+
+      <div class="board" id="board">
+        <div class="cell disabled" data-pos="0"></div>
+        <div class="cell disabled" data-pos="1"></div>
+        <div class="cell disabled" data-pos="2"></div>
+        <div class="cell disabled" data-pos="3"></div>
+        <div class="cell disabled" data-pos="4"></div>
+        <div class="cell disabled" data-pos="5"></div>
+        <div class="cell disabled" data-pos="6"></div>
+        <div class="cell disabled" data-pos="7"></div>
+        <div class="cell disabled" data-pos="8"></div>
+      </div>
+
+      <div id="connection" class="connection-status disconnected">
+        ⚫ Disconnected
+      </div>
+
+      <div id="room-info" class="room-info">
+        Room: <span id="room-id">-</span>
+      </div>
+    </div>
+
+    <script>
+      class TicTacToeClient {
+        constructor() {
+          this.ws = null;
+          this.playerSymbol = null;
+          this.currentTurn = "X";
+          this.board = Array(9).fill(null);
+          this.gameActive = false;
+          this.roomId = null;
+
+          this.setupBoard();
+          this.connect();
+        }
+
+        connect() {
+          const protocol =
+            window.location.protocol === "https:" ? "wss:" : "ws:";
+          const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+          console.log("Connecting to:", wsUrl);
+          this.ws = new WebSocket(wsUrl);
+
+          this.ws.onopen = () => {
+            console.log("Connected to server");
+            this.updateConnectionStatus(true);
+            this.sendHandshake();
+          };
+
+          this.ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log("Received:", data);
+            this.handleMessage(data);
+          };
+
+          this.ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+          };
+
+          this.ws.onclose = () => {
+            console.log("Disconnected from server");
+            this.updateConnectionStatus(false);
+            setTimeout(() => this.connect(), 3000);
+          };
+        }
+
+        sendHandshake() {
+          this.send({ type: "handshake", version: "1.0" });
+        }
+
+        send(data) {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(data));
+            console.log("Sent:", data);
+          }
+        }
+
+        handleMessage(data) {
+          switch (data.type) {
+            case "room_assigned":
+              this.handleRoomAssigned(data);
+              break;
+            case "opponent_joined":
+              this.handleOpponentJoined(data);
+              break;
+            case "move":
+              this.handleOpponentMove(data);
+              break;
+            case "game_over":
+              this.handleGameOver(data);
+              break;
+            case "error":
+              this.handleError(data);
+              break;
+          }
+        }
+
+        handleRoomAssigned(data) {
+          this.roomId = data.room_id;
+          this.playerSymbol = data.symbol;
+
+          document.getElementById("room-id").textContent = this.roomId;
+          document.getElementById(
+            "player-symbol"
+          ).textContent = `You: ${this.playerSymbol}`;
+
+          if (data.status === "waiting") {
+            this.updateStatus("Waiting for opponent...", "waiting");
+            this.gameActive = false;
+          } else if (data.status === "paired") {
+            this.updateStatus("Game starting!", "playing");
+            this.gameActive = true;
+            this.updateTurnDisplay();
+          }
+        }
+
+        handleOpponentJoined(data) {
+          this.updateStatus("Opponent joined! Game starting...", "playing");
+          this.gameActive = true;
+          this.resetBoard();
+          this.updateTurnDisplay();
+        }
+
+        handleOpponentMove(data) {
+          const { position, player } = data;
+          this.board[position] = player;
+          this.currentTurn = this.currentTurn === "X" ? "O" : "X";
+          this.renderBoard();
+          this.updateTurnDisplay();
+        }
+
+        handleGameOver(data) {
+          const { result, winner, new_room_id, new_status } = data;
+
+          if (result === "win") {
+            this.updateStatus("🎉 You Won!", "won");
+          } else if (result === "loss") {
+            this.updateStatus("😞 You Lost", "lost");
+          } else {
+            this.updateStatus("🤝 Draw", "draw");
+          }
+
+          this.gameActive = false;
+
+          // Update to new room
+          setTimeout(() => {
+            this.roomId = new_room_id;
+            this.playerSymbol = data.symbol;
+            this.resetBoard();
+
+            document.getElementById("room-id").textContent = this.roomId;
+            document.getElementById(
+              "player-symbol"
+            ).textContent = `You: ${this.playerSymbol}`;
+
+            if (new_status === "waiting") {
+              this.updateStatus("Waiting for opponent...", "waiting");
+            } else if (new_status === "paired") {
+              this.updateStatus("Game starting!", "playing");
+              this.gameActive = true;
+              this.updateTurnDisplay();
+            }
+          }, 2000);
+        }
+
+        handleError(data) {
+          console.error("Error:", data.message);
+          alert(`Error: ${data.message}`);
+        }
+
+        setupBoard() {
+          const cells = document.querySelectorAll(".cell");
+          cells.forEach((cell) => {
+            cell.addEventListener("click", () => {
+              const pos = parseInt(cell.dataset.pos);
+              this.makeMove(pos);
+            });
+          });
+        }
+
+        makeMove(position) {
+          if (!this.gameActive) return;
+          if (this.board[position] !== null) return;
+          if (this.currentTurn !== this.playerSymbol) return;
+
+          this.board[position] = this.playerSymbol;
+          this.currentTurn = this.currentTurn === "X" ? "O" : "X";
+          this.renderBoard();
+          this.updateTurnDisplay();
+
+          this.send({ type: "move", position });
+        }
+
+        resetBoard() {
+          this.board = Array(9).fill(null);
+          this.currentTurn = "X";
+          this.renderBoard();
+        }
+
+        renderBoard() {
+          const cells = document.querySelectorAll(".cell");
+          cells.forEach((cell, index) => {
+            const value = this.board[index];
+            cell.textContent = value || "";
+            cell.classList.remove("filled", "disabled", "x", "o");
+
+            if (value) {
+              cell.classList.add("filled", value.toLowerCase());
+            } else if (
+              !this.gameActive ||
+              this.currentTurn !== this.playerSymbol
+            ) {
+              cell.classList.add("disabled");
+            }
+          });
+        }
+
+        updateTurnDisplay() {
+          const turnEl = document.getElementById("turn");
+          turnEl.textContent = this.currentTurn;
+
+          if (this.gameActive) {
+            if (this.currentTurn === this.playerSymbol) {
+              this.updateStatus("Your turn!", "playing");
+            } else {
+              this.updateStatus("Opponent's turn...", "playing");
+            }
+          }
+        }
+
+        updateStatus(message, type) {
+          const statusEl = document.getElementById("status");
+          statusEl.textContent = message;
+          statusEl.className = `status ${type}`;
+        }
+
+        updateConnectionStatus(connected) {
+          const connEl = document.getElementById("connection");
+          if (connected) {
+            connEl.textContent = "🟢 Connected";
+            connEl.className = "connection-status connected";
+          } else {
+            connEl.textContent = "🔴 Disconnected";
+            connEl.className = "connection-status disconnected";
+          }
+        }
+      }
+
+      // Start the game when page loads
+      window.addEventListener("DOMContentLoaded", () => {
+        new TicTacToeClient();
+      });
+    </script>
+  </body>
+</html>
