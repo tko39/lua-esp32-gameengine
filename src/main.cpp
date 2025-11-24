@@ -103,7 +103,6 @@ void setup()
 
   tft.setRotation(2);
   tft.fillScreen(TFT_BLACK);
-  tft.initDMA();
 
 #ifdef USE_VSPI
   touchSPI.begin(TOUCH_SCLK, TOUCH_MISO, TOUCH_MOSI, -1);
