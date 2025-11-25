@@ -12,7 +12,7 @@ in_path = Path(sys.argv[1])
 out_path = Path(sys.argv[2])
 
 # --- load mesh via trimesh ---
-mesh = trimesh.load(in_path, force='mesh')
+mesh = trimesh.load_mesh(in_path, force='mesh')
 
 if mesh.is_empty:
     print("Failed to load mesh or mesh is empty")

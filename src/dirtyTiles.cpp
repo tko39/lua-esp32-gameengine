@@ -56,14 +56,6 @@ std::vector<TileRect> DirtyTileManager::getUpdateRectangles()
 {
     std::vector<TileRect> rects;
 
-    // Create a working copy that includes both current and previous tiles
-    std::vector<bool> workingTiles(tilesX_ * tilesY_, false);
-
-    for (int i = 0; i < tilesX_ * tilesY_; ++i)
-    {
-        workingTiles[i] = currentTiles_[i] || previousTiles_[i];
-    }
-
     // Combine tiles into rectangles using a greedy algorithm
     combineTilesIntoRectangles(rects);
 
